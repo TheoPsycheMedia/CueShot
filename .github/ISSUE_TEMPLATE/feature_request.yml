@@ -1,0 +1,39 @@
+name: Feature Request
+description: Suggest an improvement for CueShot.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: What are you trying to do faster or more accurately?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should CueShot do?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Element accuracy
+        - Activation flow
+        - Codex handoff
+        - Export or saving
+        - Settings
+        - Onboarding
+        - Release packaging
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional, but helpful.

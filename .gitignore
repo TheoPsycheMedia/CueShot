@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# SwiftPM and Xcode
+.build/
+DerivedData/
+*.xcuserstate
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Local app bundles and release staging
+dist/
+*.dmg
+*.pkg
+
+# Local logs and diagnostics
+*.log
+*.trace
+
+# Internal design-review captures can include local desktop context.
+audits/
+
+# JavaScript tooling used by marketing/demo sources
+node_modules/
+.hyperframes/
+
+# Generated marketing renders. Final public assets live in docs/media/.
+marketing/**/proof/
+marketing/**/assets/audio/*.mp3
+marketing/**/assets/audio/*.m4a
