@@ -31,7 +31,6 @@ Raw generated audio and proof renders are intentionally ignored from source cont
 - Privacy statement
 - Support notes
 - GitHub issue templates and PR template
-- GitHub Actions CI for `swift test`
 - Release and architecture documentation
 - Third-party notices
 
@@ -39,4 +38,5 @@ Raw generated audio and proof renders are intentionally ignored from source cont
 
 - Confirm all demo frames remain privacy-safe and free of real desktop source material
 - Decide whether the Command triple-click listener remains optional, hidden behind settings, or removed from public positioning
+- Enable GitHub Actions CI for `swift test`
 - Add signing and notarization automation before distributing `.dmg` or `.pkg` artifacts
