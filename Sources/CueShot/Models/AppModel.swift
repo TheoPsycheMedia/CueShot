@@ -20,7 +20,7 @@ final class AppModel: ObservableObject {
             userDefaults.set(autoPasteToCodex, forKey: PreferenceKey.autoPasteToCodex)
         }
     }
-    @Published var showCaptureButtonAtLaunch = true {
+    @Published var showCaptureButtonAtLaunch = false {
         didSet {
             userDefaults.set(showCaptureButtonAtLaunch, forKey: PreferenceKey.showCaptureButtonAtLaunch)
         }
@@ -124,9 +124,23 @@ final class AppModel: ObservableObject {
     }
 
     func selectMode(_ mode: CaptureMode) {
+        let wasArmed = oneClickCaptureArmed
+        if wasArmed {
+            gestureMonitor.stop()
+            gestureMonitorRunning = false
+            oneClickCaptureArmed = false
+            overlayController.hide()
+            currentTarget = nil
+            resetHoverCache()
+        }
+
         withAnimation(MotionSpec.navigationSpring) {
             selectedMode = mode
-            captureState = oneClickCaptureArmed ? .armed : .ready
+            captureState = .ready
+        }
+
+        if wasArmed {
+            diagnostics.record("capture.mode changedWhileArmed mode=\(mode.rawValue)")
         }
     }
 
@@ -286,12 +300,14 @@ final class AppModel: ObservableObject {
     func showCapturePuck() {
         capturePuckVisible = true
         capturePuckController.show(model: self)
+        diagnostics.record("capturePuck.show visible=true")
     }
 
     func hideCapturePuck() {
         cancelOneClickCapture()
         capturePuckVisible = false
         capturePuckController.hide()
+        diagnostics.record("capturePuck.hide visible=false")
     }
 
     func toggleCapturePuck() {
@@ -769,6 +785,16 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .element: "Element"
         case .selection: "Selection"
+        case .window: "Window"
+        case .area: "Area"
+        case .screen: "Screen"
+        }
+    }
+
+    var puckPickerTitle: String {
+        switch self {
+        case .element: "Element"
+        case .selection: "Select"
         case .window: "Window"
         case .area: "Area"
         case .screen: "Screen"

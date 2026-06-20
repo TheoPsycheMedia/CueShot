@@ -48,6 +48,7 @@ func axValue<T>(_ value: CFTypeRef?, type: AXValueType, as _: T.Type) -> T? {
 }
 
 func attribute(_ name: String, from element: AXUIElement) -> CFTypeRef? {
+    AXUIElementSetMessagingTimeout(element, 0.25)
     var rawValue: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, name as CFString, &rawValue) == .success else {
         return nil
@@ -65,8 +66,9 @@ func children(of element: AXUIElement) -> [AXUIElement] {
 }
 
 func findButton(in element: AXUIElement, containing needle: String, depth: Int = 0) -> AXUIElement? {
-    guard depth < 12 else { return nil }
+    guard depth < 10 else { return nil }
 
+    AXUIElementSetMessagingTimeout(element, 0.25)
     let role = stringAttribute(kAXRoleAttribute, from: element)
     let strings = [
         stringAttribute(kAXTitleAttribute, from: element),
@@ -93,6 +95,10 @@ guard AXIsProcessTrusted() else {
     fail("Accessibility is not trusted for the smoke runner.")
 }
 
+guard UserDefaults(suiteName: "com.edgariraheta.CueShot")?.bool(forKey: "enableSmokeAutomation") == true else {
+    fail("Smoke automation is disabled. Enable it with: defaults write com.edgariraheta.CueShot enableSmokeAutomation -bool true, then relaunch CueShot.")
+}
+
 let before = manifestRecords().count
 let cueShotApp = NSWorkspace.shared.runningApplications.first {
     $0.localizedName == "CueShot" || $0.bundleIdentifier == "com.edgariraheta.CueShot"
@@ -103,7 +109,141 @@ guard let cueShotApp else {
 }
 
 let axApp = AXUIElementCreateApplication(cueShotApp.processIdentifier)
-let windows = (attribute(kAXWindowsAttribute, from: axApp) as? [AXUIElement]) ?? []
+AXUIElementSetMessagingTimeout(axApp, 0.25)
+func loadWindows() -> [AXUIElement] {
+    let values = (attribute(kAXWindowsAttribute, from: axApp) as? [AXUIElement]) ?? []
+    values.forEach { AXUIElementSetMessagingTimeout($0, 0.25) }
+    return values
+}
+
+var windows = loadWindows()
+
+func captureControlWindows() -> [AXUIElement] {
+    windows.filter { window in
+        guard let size = axValue(attribute(kAXSizeAttribute, from: window), type: .cgSize, as: CGSize.self) else {
+            return false
+        }
+
+        return size.width >= 320 && size.width <= 560 && size.height >= 80 && size.height <= 220
+    }
+}
+
+func postShowCaptureControlShortcut() {
+    cueShotApp.activate(options: [.activateIgnoringOtherApps])
+    usleep(200_000)
+
+    let source = CGEventSource(stateID: .hidSystemState)
+    for keyDown in [true, false] {
+        let event = CGEvent(keyboardEventSource: source, virtualKey: 18, keyDown: keyDown)
+        event?.flags = [.maskCommand, .maskShift]
+        event?.post(tap: .cghidEventTap)
+        usleep(40_000)
+    }
+}
+
+func findFloatingButton(containing needles: [String]) -> AXUIElement? {
+    let searchWindows = captureControlWindows()
+    for needle in needles {
+        if let button = searchWindows.compactMap({ findButton(in: $0, containing: needle) }).first {
+            return button
+        }
+    }
+
+    return nil
+}
+
+func ensureCaptureControlVisible(containing needles: [String]) -> AXUIElement? {
+    if let button = findFloatingButton(containing: needles) {
+        return button
+    }
+
+    postShowCaptureControlShortcut()
+    let deadline = Date().addingTimeInterval(3)
+    while Date() < deadline {
+        windows = loadWindows()
+        if let button = findFloatingButton(containing: needles) {
+            return button
+        }
+
+        usleep(120_000)
+    }
+
+    return nil
+}
+
+func requestCaptureControl() {
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name("com.edgariraheta.CueShot.showCaptureControl"),
+        object: nil,
+        userInfo: nil,
+        deliverImmediately: true
+    )
+}
+
+func selectMode(_ mode: String) {
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name("com.edgariraheta.CueShot.selectCaptureMode"),
+        object: nil,
+        userInfo: ["mode": mode],
+        deliverImmediately: true
+    )
+}
+
+func armCapture() {
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name("com.edgariraheta.CueShot.armCapture"),
+        object: nil,
+        userInfo: nil,
+        deliverImmediately: true
+    )
+}
+
+func cgFloat(_ value: Any?) -> CGFloat? {
+    if let value = value as? CGFloat {
+        return value
+    }
+    if let value = value as? NSNumber {
+        return CGFloat(truncating: value)
+    }
+    return nil
+}
+
+func captureControlBounds() -> CGRect? {
+    let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+    for window in windows {
+        guard
+            (window[kCGWindowOwnerName as String] as? String) == "CueShot",
+            (window[kCGWindowName as String] as? String) == "CueShot Capture Control",
+            (window[kCGWindowIsOnscreen as String] as? Bool) == true,
+            let rawBounds = window[kCGWindowBounds as String] as? [String: Any],
+            let x = cgFloat(rawBounds["X"]),
+            let y = cgFloat(rawBounds["Y"]),
+            let width = cgFloat(rawBounds["Width"]),
+            let height = cgFloat(rawBounds["Height"])
+        else {
+            continue
+        }
+
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    return nil
+}
+
+func ensureCaptureControlBounds() -> CGRect? {
+    requestCaptureControl()
+    let deadline = Date().addingTimeInterval(3)
+    while Date() < deadline {
+        if let bounds = captureControlBounds() {
+            return bounds
+        }
+
+        usleep(120_000)
+    }
+
+    return nil
+}
+
 let resolvedWindow = windows.compactMap { window -> (CGPoint, CGSize)? in
     guard
         let position = axValue(attribute(kAXPositionAttribute, from: window), type: .cgPoint, as: CGPoint.self),
@@ -130,26 +270,26 @@ if let (position, size) = resolvedWindow {
 
 let source = CGEventSource(stateID: .hidSystemState)
 
-func postClick(_ type: CGEventType) {
-    let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: clickPoint, mouseButton: .left)
+func postMouse(_ type: CGEventType, at point: CGPoint) {
+    let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
     event?.flags = []
     event?.post(tap: .cghidEventTap)
 }
 
-let captureButton =
-    findButton(in: axApp, containing: "CueShot Capture")
-    ?? windows.compactMap { findButton(in: $0, containing: "arm") }.first
-    ?? findButton(in: axApp, containing: "arm")
-    ?? windows.compactMap { findButton(in: $0, containing: "capture") }.first
-    ?? findButton(in: axApp, containing: "capture")
-guard let captureButton else {
-    fail("Could not find the CueShot floating Arm button through Accessibility.")
+func click(_ point: CGPoint) {
+    postMouse(.leftMouseDown, at: point)
+    usleep(45_000)
+    postMouse(.leftMouseUp, at: point)
 }
 
-let pressResult = AXUIElementPerformAction(captureButton, kAXPressAction as CFString)
-guard pressResult == .success else {
-    fail("Could not press the floating Arm button. AX result: \(pressResult.rawValue)")
+func postClick(_ type: CGEventType) {
+    postMouse(type, at: clickPoint)
 }
+
+requestCaptureControl()
+selectMode("element")
+usleep(180_000)
+armCapture()
 
 usleep(450_000)
 postClick(.leftMouseDown)

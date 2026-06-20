@@ -42,19 +42,23 @@ final class CapturePuckController {
 
     private func makePanel(model: AppModel) -> NSPanel {
         let panel = FloatingCapturePanel(
-            contentRect: NSRect(origin: .zero, size: NSSize(width: 392, height: 82)),
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 468, height: 146)),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
 
         panel.level = .statusBar
+        panel.title = "CueShot Capture Control"
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.setAccessibilityElement(true)
+        panel.setAccessibilityRole(.window)
+        panel.setAccessibilityTitle("CueShot Capture Control")
         panel.contentView = NSHostingView(rootView: CapturePuckView(model: model))
         return panel
     }
@@ -85,74 +89,109 @@ private struct CapturePuckView: View {
 
     var body: some View {
         CueGlassGroup(spacing: 8) {
-            HStack(spacing: 11) {
-                statusGlyph
+            VStack(spacing: 10) {
+                HStack(spacing: 11) {
+                    statusGlyph
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(width: 156, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                if model.oneClickCaptureArmed {
-                    Button {
-                        model.cancelOneClickCapture()
-                    } label: {
-                        Label("Cancel", systemImage: "xmark")
-                            .labelStyle(.titleAndIcon)
-                            .frame(width: 86)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Text(detail)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .accessibilityIdentifier("CapturePuckStopButton")
-                    .buttonStyle(PressableMotionStyle())
-                    .cueTintedGlass(.orange.opacity(0.18), cornerRadius: 14, interactive: true)
-                } else {
-                    Button {
-                        model.armCaptureFromFloatingControl()
-                    } label: {
-                        Label("Arm", systemImage: "scope")
-                            .labelStyle(.titleAndIcon)
-                            .frame(width: 76)
-                    }
-                    .accessibilityIdentifier("CapturePuckCaptureButton")
-                    .buttonStyle(PressableMotionStyle())
-                    .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 14, interactive: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    captureActionButton
+                    utilityMenu
                 }
 
-                Menu {
-                    Button("Hide Button") {
-                        model.hideCapturePuck()
-                    }
-                    Button("Open CueShot") {
-                        model.openMainWindow()
-                    }
-                    Divider()
-                    Button("Quit CueShot") {
-                        NSApp.terminate(nil)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                }
-                .accessibilityIdentifier("CapturePuckMenuButton")
-                .menuStyle(.button)
-                .buttonStyle(.plain)
+                modePicker
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(width: 392, height: 82)
+            .frame(width: 468, height: 146)
             .cueGlass(cornerRadius: 24, interactive: true)
             .scaleEffect(appeared ? 1 : 0.96)
             .opacity(appeared ? 1 : 0)
             .animation(MotionSpec.entrance, value: appeared)
             .onAppear { appeared = true }
+        }
+    }
+
+    @ViewBuilder
+    private var captureActionButton: some View {
+        if model.oneClickCaptureArmed {
+            Button {
+                model.cancelOneClickCapture()
+            } label: {
+                Label("Cancel", systemImage: "xmark")
+                    .labelStyle(.titleAndIcon)
+                    .frame(width: 86)
+            }
+            .accessibilityIdentifier("CapturePuckStopButton")
+            .buttonStyle(PressableMotionStyle())
+            .cueTintedGlass(.orange.opacity(0.18), cornerRadius: 14, interactive: true)
+        } else {
+            Button {
+                model.armCaptureFromFloatingControl()
+            } label: {
+                Label("Arm", systemImage: "scope")
+                    .labelStyle(.titleAndIcon)
+                    .frame(width: 76)
+            }
+            .accessibilityIdentifier("CapturePuckCaptureButton")
+            .buttonStyle(PressableMotionStyle())
+            .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 14, interactive: true)
+        }
+    }
+
+    private var utilityMenu: some View {
+        Menu {
+            Button("Hide Button") {
+                model.hideCapturePuck()
+            }
+            Button("Open CueShot") {
+                model.openMainWindow()
+            }
+            Divider()
+            Button("Quit CueShot") {
+                NSApp.terminate(nil)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .accessibilityIdentifier("CapturePuckMenuButton")
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 6) {
+            ForEach(CaptureMode.allCases) { mode in
+                Button {
+                    model.selectMode(mode)
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: mode.symbol)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(mode.puckPickerTitle)
+                            .font(.system(size: 9, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(model.selectedMode == mode ? CueColor.reticle : .secondary)
+                }
+                .accessibilityIdentifier("CapturePuckMode-\(mode.rawValue)")
+                .buttonStyle(PressableMotionStyle())
+                .cueTintedGlass((model.selectedMode == mode ? CueColor.reticle : .white).opacity(model.selectedMode == mode ? 0.20 : 0.08), cornerRadius: 13, interactive: true)
+                .help(mode.helpText)
+            }
         }
     }
 
