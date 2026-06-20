@@ -21,6 +21,8 @@ swift script/smoke_area_capture.swift
 
 Smoke scripts require Accessibility and Screen Recording permission for the built app bundle.
 
+Native macOS 26 Liquid Glass symbols are gated behind the `CUESHOT_ENABLE_NATIVE_LIQUID_GLASS` compile flag so public GitHub runners and older SDKs can compile the material fallback path.
+
 ## GitHub Release Checklist
 
 1. Confirm `swift test` passes locally and in GitHub Actions.

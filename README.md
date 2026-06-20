@@ -28,7 +28,7 @@ This repository contains a native SwiftUI macOS MVP:
 
 - SwiftPM executable app bundle staged by `script/build_and_run.sh`.
 - SwiftUI window, Settings scene, and AppKit-backed menu bar activation item.
-- Liquid Glass-aware surface helpers using native `glassEffect` / `GlassEffectContainer` on macOS 26 with material fallbacks.
+- Liquid Glass-inspired surface helpers with public-runner-safe material fallbacks. Native `glassEffect` / `GlassEffectContainer` calls are available behind the `CUESHOT_ENABLE_NATIVE_LIQUID_GLASS` compile flag when building with a compatible macOS 26 SDK.
 - Floating capture control for arming, canceling, hiding, or quitting capture.
 - Generated macOS `.icns` app icon bundled into the installed app.
 - Optional global Command + triple-click listener backed by a Core Graphics event tap, with local fallback behavior.

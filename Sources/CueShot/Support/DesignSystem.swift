@@ -15,6 +15,7 @@ enum CueShape {
 extension View {
     @ViewBuilder
     func cueGlass(cornerRadius: CGFloat = CueShape.cardRadius, interactive: Bool = false) -> some View {
+        #if CUESHOT_ENABLE_NATIVE_LIQUID_GLASS
         if #available(macOS 26.0, *) {
             if interactive {
                 self.glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius))
@@ -22,17 +23,16 @@ extension View {
                 self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
             }
         } else {
-            self
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.14), lineWidth: 1)
-                }
+            cueMaterialGlass(cornerRadius: cornerRadius)
         }
+        #else
+        cueMaterialGlass(cornerRadius: cornerRadius)
+        #endif
     }
 
     @ViewBuilder
     func cueTintedGlass(_ tint: Color, cornerRadius: CGFloat = CueShape.cardRadius, interactive: Bool = false) -> some View {
+        #if CUESHOT_ENABLE_NATIVE_LIQUID_GLASS
         if #available(macOS 26.0, *) {
             if interactive {
                 self.glassEffect(.regular.tint(tint).interactive(), in: .rect(cornerRadius: cornerRadius))
@@ -40,14 +40,30 @@ extension View {
                 self.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
             }
         } else {
-            self
-                .background(tint.opacity(0.22), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(tint.opacity(0.35), lineWidth: 1)
-                }
+            cueTintedMaterialGlass(tint, cornerRadius: cornerRadius)
         }
+        #else
+        cueTintedMaterialGlass(tint, cornerRadius: cornerRadius)
+        #endif
+    }
+
+    private func cueMaterialGlass(cornerRadius: CGFloat) -> some View {
+        self
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+            }
+    }
+
+    private func cueTintedMaterialGlass(_ tint: Color, cornerRadius: CGFloat) -> some View {
+        self
+            .background(tint.opacity(0.22), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+            }
     }
 }
 
@@ -56,6 +72,7 @@ struct CueGlassGroup<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        #if CUESHOT_ENABLE_NATIVE_LIQUID_GLASS
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) {
                 content()
@@ -63,5 +80,8 @@ struct CueGlassGroup<Content: View>: View {
         } else {
             content()
         }
+        #else
+        content()
+        #endif
     }
 }
