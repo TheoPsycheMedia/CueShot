@@ -105,7 +105,15 @@ swift script/smoke_global_capture.swift
 swift script/smoke_area_capture.swift
 ```
 
-The smoke scripts require the launched app bundle to have Accessibility and Screen Recording permission.
+The smoke scripts require the launched app bundle to have Accessibility and Screen Recording permission. They also require the local smoke automation flag before launching CueShot:
+
+```bash
+defaults write com.edgariraheta.CueShot enableSmokeAutomation -bool true
+./script/build_and_run.sh --install
+swift script/smoke_global_capture.swift
+swift script/smoke_area_capture.swift
+defaults delete com.edgariraheta.CueShot enableSmokeAutomation
+```
 
 ## Project Layout
 
