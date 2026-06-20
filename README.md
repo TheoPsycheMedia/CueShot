@@ -67,6 +67,14 @@ Install to a stable local app path:
 
 This copies the app bundle to `~/Applications/CueShot.app`.
 
+Build a local DMG for GitHub Releases:
+
+```bash
+./script/build_and_run.sh --dmg
+```
+
+Set `CUESHOT_VERSION=0.1.0` to control the generated `dist/CueShot-0.1.0.dmg` filename.
+
 ## Permissions
 
 CueShot needs macOS Privacy grants for the app bundle:

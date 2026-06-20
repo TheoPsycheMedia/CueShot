@@ -5,10 +5,13 @@ MODE="${1:-run}"
 APP_NAME="CueShot"
 BUNDLE_ID="com.edgariraheta.CueShot"
 MIN_SYSTEM_VERSION="14.0"
+VERSION="${CUESHOT_VERSION:-0.1.0}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+DMG_ROOT="$DIST_DIR/dmg-root"
+DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION.dmg"
 INSTALL_DIR="$HOME/Applications"
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -114,6 +117,22 @@ install_app() {
   echo "$INSTALLED_APP"
 }
 
+build_dmg() {
+  build_app
+  rm -rf "$DMG_ROOT" "$DMG_PATH"
+  mkdir -p "$DMG_ROOT"
+  ditto "$APP_BUNDLE" "$DMG_ROOT/$APP_NAME.app"
+  ln -s /Applications "$DMG_ROOT/Applications"
+  hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "$DMG_ROOT" \
+    -ov \
+    -format UDZO \
+    "$DMG_PATH" >/dev/null
+  hdiutil verify "$DMG_PATH" >/dev/null
+  echo "$DMG_PATH"
+}
+
 tcc_label() {
   case "$1" in
     2) echo "allowed" ;;
@@ -174,6 +193,9 @@ case "$MODE" in
   --install|install)
     install_app
     ;;
+  --dmg|dmg)
+    build_dmg
+    ;;
   --diagnose|diagnose)
     diagnostic_app="$APP_BUNDLE"
     if [[ -d "$INSTALLED_APP" ]]; then
@@ -196,7 +218,7 @@ case "$MODE" in
     pgrep -x "$APP_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--permissions|--install|--diagnose|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--permissions|--install|--dmg|--diagnose|--verify]" >&2
     exit 2
     ;;
 esac

@@ -10,6 +10,14 @@ CueShot can be built locally today. Public notarized distribution still requires
 
 The script builds the SwiftPM executable, creates a `.app` bundle under `dist/`, signs it with the first available Apple Development identity or ad-hoc signing, then copies it to `~/Applications/CueShot.app`.
 
+## Local DMG
+
+```bash
+CUESHOT_VERSION=0.1.0 ./script/build_and_run.sh --dmg
+```
+
+The script creates `dist/CueShot-0.1.0.dmg` with `CueShot.app` and an `Applications` shortcut. The DMG is suitable for GitHub Releases, but it is not a notarized public distribution until Developer ID signing and notarization are added.
+
 ## Verification Before Tagging
 
 ```bash
@@ -30,7 +38,8 @@ Native macOS 26 Liquid Glass symbols are gated behind the `CUESHOT_ENABLE_NATIVE
 3. Verify first-run onboarding, menu bar activation, floating capture control, and Settings.
 4. Confirm no private screenshots or local personal data are included in release media.
 5. Tag the release.
-6. Attach the final app artifact once signing/notarization is ready.
+6. Attach the final DMG artifact.
+7. Add Developer ID signing/notarization before presenting the download as fully trusted macOS distribution.
 
 ## Notarization Status
 
