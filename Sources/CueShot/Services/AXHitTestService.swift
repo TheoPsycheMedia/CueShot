@@ -60,20 +60,23 @@ struct AXHitTestService {
         let role = stringAttribute(kAXRoleAttribute, from: resolvedElement) ?? "AXElement"
         let subrole = stringAttribute(kAXSubroleAttribute, from: resolvedElement)
         let title = sanitizedTitle(for: resolvedElement, role: role, subrole: subrole)
+        let screenFrame = displayFrame(containing: point)
         let rawBounds = bounds(for: resolvedElement)
-        let rect = captureRect(for: rawBounds ?? fallbackWindowBounds(for: resolvedElement) ?? estimatedRect(around: point), screenFrame: displayFrame(containing: point))
+        let fallbackBounds = fallbackWindowBounds(for: resolvedElement)
+        let rect = captureRect(for: rawBounds ?? fallbackBounds ?? estimatedRect(around: point), screenFrame: screenFrame)
         let app = runningApplication(for: resolvedElement)
+        let confidence = elementConfidence(rawBounds: rawBounds, fallbackBounds: fallbackBounds, role: role, rect: rect, screenFrame: screenFrame)
 
         return CaptureTarget(
             point: point,
-            screenFrame: displayFrame(containing: point),
+            screenFrame: screenFrame,
             rect: rect.standardized,
             sourceAppName: app?.localizedName ?? "Unknown App",
             sourceBundleID: app?.bundleIdentifier,
             axRole: role,
             axSubrole: subrole,
             axTitle: title,
-            confidence: rawBounds == nil ? .windowFallback : .exact
+            confidence: confidence
         )
     }
 
@@ -227,6 +230,40 @@ struct AXHitTestService {
         }
 
         return clamped
+    }
+
+    private func elementConfidence(rawBounds: CGRect?, fallbackBounds: CGRect?, role: String, rect: CGRect, screenFrame: CGRect) -> TargetConfidence {
+        guard rawBounds != nil else {
+            return fallbackBounds == nil ? .estimated : .windowFallback
+        }
+
+        if isCoarseContainer(role: role, rect: rect, screenFrame: screenFrame) {
+            return .adjusted
+        }
+
+        return .exact
+    }
+
+    private func isCoarseContainer(role: String, rect: CGRect, screenFrame: CGRect) -> Bool {
+        let containerRoles: Set<String> = [
+            "AXApplication",
+            "AXBrowser",
+            "AXGroup",
+            "AXLayoutArea",
+            "AXScrollArea",
+            "AXSplitGroup",
+            "AXTabGroup",
+            "AXUnknown",
+            "AXWebArea",
+            "AXWindow"
+        ]
+        guard containerRoles.contains(role) else { return false }
+
+        let screenArea = max(screenFrame.width * screenFrame.height, 1)
+        let rectArea = max(rect.width * rect.height, 1)
+        let coversMostWidth = rect.width >= screenFrame.width * 0.72
+        let coversMostHeight = rect.height >= screenFrame.height * 0.72
+        return rectArea / screenArea >= 0.34 || (coversMostWidth && coversMostHeight)
     }
 
     private func fallbackWindowBounds(for element: AXUIElement) -> CGRect? {

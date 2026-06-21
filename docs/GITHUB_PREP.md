@@ -2,11 +2,11 @@
 
 ## Repository Pitch
 
-CueShot is a tiny macOS utility for capturing the exact UI detail you want to show Codex. Use the menu bar icon to reveal the floating capture control, arm the next click or drag, then send the resulting PNG to Codex or keep it in local history with clipboard fallback.
+CueShot is a tiny macOS utility for capturing the exact UI detail you want to show Codex. Use the menu bar icon to reveal the floating capture control, arm the next click or drag, then copy a clean PNG to the clipboard with a preview you can paste, drag, or reveal in Finder.
 
 ## Suggested GitHub Description
 
-Tiny macOS capture utility for dropping exact UI screenshots into Codex.
+Tiny macOS capture utility for copying exact UI screenshots into Codex.
 
 ## Suggested Topics
 

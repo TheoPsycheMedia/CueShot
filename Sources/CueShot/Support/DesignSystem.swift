@@ -49,17 +49,19 @@ extension View {
 
     private func cueMaterialGlass(cornerRadius: CGFloat) -> some View {
         self
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(CueColor.surfaceBase.opacity(0.72), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                    .strokeBorder(.white.opacity(0.16), lineWidth: 1)
             }
     }
 
     private func cueTintedMaterialGlass(_ tint: Color, cornerRadius: CGFloat) -> some View {
         self
-            .background(tint.opacity(0.22), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(tint.opacity(0.24), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(CueColor.surfaceBase.opacity(0.62), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)

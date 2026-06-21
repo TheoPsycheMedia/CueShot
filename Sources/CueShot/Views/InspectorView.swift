@@ -8,10 +8,9 @@ struct InspectorView: View {
             VStack(alignment: .leading, spacing: 10) {
                 InspectorSection(title: "Output") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: $model.autoPasteToCodex) {
-                            Label("Send to Codex", systemImage: "sparkles")
-                        }
-                        .toggleStyle(.switch)
+                        Label("Copy PNG to Clipboard", systemImage: "doc.on.clipboard")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CueColor.reticle)
 
                         Text(model.destinationFallbackSummary)
                             .font(.system(size: 11))
@@ -22,6 +21,20 @@ struct InspectorView: View {
                             Divider().opacity(0.35)
                             LastCaptureSummary(capture: capture)
                         }
+                    }
+                }
+
+                InspectorSection(title: "Advanced") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $model.autoPasteToCodex) {
+                            Label("Try App Server after copying", systemImage: "sparkles")
+                        }
+                        .toggleStyle(.switch)
+
+                        Text("Experimental. App Server may create a new thread instead of filling the visible Codex composer.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -133,7 +146,7 @@ private struct LastCaptureSummary: View {
             Image(systemName: capture.mode.symbol)
                 .foregroundStyle(CueColor.reticle)
             VStack(alignment: .leading, spacing: 2) {
-                Text(capture.handoffStatus == "Sent" ? "Sent to Codex" : "Copied PNG")
+                Text(capture.displayHandoffStatus)
                     .font(.system(size: 12, weight: .semibold))
                 Text("\(capture.sourceAppName) - \(capture.dimensions) - \(capture.fileSize)")
                     .font(.system(size: 10))
@@ -214,7 +227,7 @@ private struct RecentCaptureRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(capture.sourceAppName)
                     .font(.system(size: 12, weight: .medium))
-                Text("\(capture.mode.title) - \(capture.handoffStatus)")
+                Text("\(capture.mode.title) - \(capture.displayHandoffStatus)")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }

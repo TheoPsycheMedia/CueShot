@@ -15,9 +15,16 @@ final class AppModel: ObservableObject {
     @Published var permissions: PermissionStatus = .mockGranted
     @Published var recentCaptures: [CaptureRecord] = []
     @Published var selectedCaptureID: CaptureRecord.ID?
-    @Published var autoPasteToCodex = true {
+    @Published var autoPasteToCodex = false {
         didSet {
             userDefaults.set(autoPasteToCodex, forKey: PreferenceKey.autoPasteToCodex)
+        }
+    }
+    @Published var handoffStatusSummary = "No handoff run yet"
+    @Published var appServerDiagnosticSummary = "No App Server diagnostic run yet"
+    @Published var codexCLIPathOverride = "" {
+        didSet {
+            userDefaults.set(codexCLIPathOverride, forKey: PreferenceKey.codexCLIPathOverride)
         }
     }
     @Published var showCaptureButtonAtLaunch = false {
@@ -28,6 +35,29 @@ final class AppModel: ObservableObject {
     @Published var fileNameTemplate = "CueShot-{app}-{mode}-{date}" {
         didSet {
             userDefaults.set(fileNameTemplate, forKey: PreferenceKey.fileNameTemplate)
+        }
+    }
+    @Published var widthResizeModifier: CaptureResizeModifier = .shift {
+        didSet {
+            guard widthResizeModifier != oldValue else { return }
+            if widthResizeModifier == heightResizeModifier {
+                heightResizeModifier = oldValue
+            }
+            userDefaults.set(widthResizeModifier.rawValue, forKey: PreferenceKey.widthResizeModifier)
+        }
+    }
+    @Published var heightResizeModifier: CaptureResizeModifier = .option {
+        didSet {
+            guard heightResizeModifier != oldValue else { return }
+            if heightResizeModifier == widthResizeModifier {
+                widthResizeModifier = oldValue
+            }
+            userDefaults.set(heightResizeModifier.rawValue, forKey: PreferenceKey.heightResizeModifier)
+        }
+    }
+    @Published private(set) var commandShortcuts: [CueShotCommand: CueShotShortcut] = CueShotCommand.defaultShortcuts {
+        didSet {
+            persistCommandShortcuts()
         }
     }
     @Published var currentTarget: CaptureTarget?
@@ -53,9 +83,11 @@ final class AppModel: ObservableObject {
     private let overlayController = OverlayWindowController()
     private let gestureMonitor = GlobalGestureMonitor()
     private let capturePuckController = CapturePuckController()
+    private lazy var settingsWindowController = SettingsWindowController(model: self)
     private var lastHoverResolveAt: TimeInterval = 0
     private var lastHoverPoint: CGPoint?
     private var lastHoverTarget: CaptureTarget?
+    private var adjustedTargetSize: CGSize?
     private let hoverResolveInterval: TimeInterval = 0.085
     private let fastHoverResolveInterval: TimeInterval = 0.045
     private let fastHoverDistance: CGFloat = 48
@@ -67,8 +99,12 @@ final class AppModel: ObservableObject {
            let mode = CaptureMode(rawValue: storedMode) {
             selectedMode = mode
         }
+        migrateClipboardFirstDefaultsIfNeeded()
         if userDefaults.object(forKey: PreferenceKey.autoPasteToCodex) != nil {
             autoPasteToCodex = userDefaults.bool(forKey: PreferenceKey.autoPasteToCodex)
+        }
+        if let storedCodexCLIPath = userDefaults.string(forKey: PreferenceKey.codexCLIPathOverride) {
+            codexCLIPathOverride = storedCodexCLIPath
         }
         if userDefaults.object(forKey: PreferenceKey.showCaptureButtonAtLaunch) != nil {
             showCaptureButtonAtLaunch = userDefaults.bool(forKey: PreferenceKey.showCaptureButtonAtLaunch)
@@ -77,6 +113,22 @@ final class AppModel: ObservableObject {
            !storedTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fileNameTemplate = storedTemplate
         }
+        let storedWidthModifier = userDefaults.string(forKey: PreferenceKey.widthResizeModifier)
+            .flatMap(CaptureResizeModifier.init(rawValue:))
+        let storedHeightModifier = userDefaults.string(forKey: PreferenceKey.heightResizeModifier)
+            .flatMap(CaptureResizeModifier.init(rawValue:))
+        if let storedWidthModifier, let storedHeightModifier, storedWidthModifier != storedHeightModifier {
+            widthResizeModifier = storedWidthModifier
+            heightResizeModifier = storedHeightModifier
+        } else {
+            if let storedWidthModifier {
+                widthResizeModifier = storedWidthModifier
+            }
+            if let storedHeightModifier, storedHeightModifier != widthResizeModifier {
+                heightResizeModifier = storedHeightModifier
+            }
+        }
+        commandShortcuts = Self.loadCommandShortcuts(from: userDefaults)
         hasCompletedOnboarding = userDefaults.bool(forKey: PreferenceKey.hasCompletedOnboarding)
         showOnboarding = !hasCompletedOnboarding
         recentCaptures = historyStore.load()
@@ -84,6 +136,83 @@ final class AppModel: ObservableObject {
         refreshLaunchAtLoginStatus()
         gestureMonitor.onEvent = { [weak self] event in
             self?.handleGestureEvent(event)
+        }
+    }
+
+    func shortcut(for command: CueShotCommand) -> CueShotShortcut {
+        commandShortcuts[command] ?? command.defaultShortcut
+    }
+
+    func setShortcut(_ shortcut: CueShotShortcut, for command: CueShotCommand) {
+        var updated = commandShortcuts
+        updated[command] = shortcut
+
+        if shortcut.isAssigned {
+            for otherCommand in CueShotCommand.allCases where otherCommand != command {
+                if (updated[otherCommand] ?? otherCommand.defaultShortcut) == shortcut {
+                    updated[otherCommand] = .unassigned
+                }
+            }
+        }
+
+        commandShortcuts = updated
+    }
+
+    func updateShortcut(for command: CueShotCommand, _ update: (inout CueShotShortcut) -> Void) {
+        var shortcut = self.shortcut(for: command)
+        update(&shortcut)
+        setShortcut(shortcut, for: command)
+    }
+
+    func resetShortcut(for command: CueShotCommand) {
+        setShortcut(command.defaultShortcut, for: command)
+    }
+
+    func clearShortcut(for command: CueShotCommand) {
+        setShortcut(.unassigned, for: command)
+    }
+
+    func resetAllShortcuts() {
+        commandShortcuts = CueShotCommand.defaultShortcuts
+    }
+
+    private func migrateClipboardFirstDefaultsIfNeeded() {
+        guard userDefaults.object(forKey: PreferenceKey.clipboardFirstMigrationVersion) == nil else {
+            return
+        }
+
+        if userDefaults.bool(forKey: PreferenceKey.autoPasteToCodex) {
+            userDefaults.set(false, forKey: PreferenceKey.autoPasteToCodex)
+        }
+        userDefaults.set(1, forKey: PreferenceKey.clipboardFirstMigrationVersion)
+    }
+
+    func performCommand(_ command: CueShotCommand) {
+        switch command {
+        case .showCaptureControl:
+            showCapturePuck()
+        case .toggleCaptureControl:
+            toggleCapturePuck()
+        case .armCapture:
+            armCaptureFromFloatingControl()
+        case .cancelCapture:
+            stopGestureMonitor()
+        case .copyLastPNG:
+            copyLastCapture()
+        case .selectElementMode:
+            selectModeAndRevealControl(.element)
+        case .selectSelectionMode:
+            selectModeAndRevealControl(.selection)
+        case .selectWindowMode:
+            selectModeAndRevealControl(.window)
+        case .selectAreaMode:
+            selectModeAndRevealControl(.area)
+        case .selectScreenMode:
+            selectModeAndRevealControl(.screen)
+        case .openSettings:
+            openSettings()
+        case .showOnboarding:
+            openOnboarding()
         }
     }
 
@@ -99,12 +228,37 @@ final class AppModel: ObservableObject {
         return NSImage(data: data)
     }
 
+    var selectedCaptureURL: URL? {
+        guard let selectedCapture else { return nil }
+        return historyStore.pngURL(for: selectedCapture)
+    }
+
     var destinationSummary: String {
-        autoPasteToCodex ? "Send to Codex when available" : "Copy PNG only"
+        autoPasteToCodex ? "Copy PNG, then try experimental App Server" : "Copy PNG to Clipboard"
     }
 
     var destinationFallbackSummary: String {
-        autoPasteToCodex ? "Fallback: copy PNG if Codex is unavailable." : "Every capture stays copied to your clipboard."
+        autoPasteToCodex ? "Advanced: CueShot still copies the PNG first, then tries Codex App Server. The visible Codex composer may still need Cmd+V or drag/drop." : "Every capture copies a clean PNG and file URL. Press Cmd+V in Codex, drag the preview, or reveal the PNG."
+    }
+
+    var permissionDiagnosticSummary: String {
+        let bundleID = Bundle.main.bundleIdentifier ?? "unknown bundle id"
+        let bundlePath = Bundle.main.bundleURL.path
+        let codex = handoffService.runningCodexDescription() ?? "Codex is not currently running"
+        let cli = CodexAppServerClient.resolveCLIPath(override: codexCLIPathOverride).displayDescription
+        return "CueShot: \(bundleID) at \(bundlePath) · AX: \(permissions.accessibilityGranted ? "granted" : "missing") · Screen: \(permissions.screenRecordingGranted ? "granted" : "missing") · Codex app: \(codex) · Codex CLI: \(cli)"
+    }
+
+    var codexCLIResolutionSummary: String {
+        CodexAppServerClient.resolveCLIPath(override: codexCLIPathOverride).displayDescription
+    }
+
+    var resizeBindings: CaptureResizeBindings {
+        CaptureResizeBindings(widthModifier: widthResizeModifier, heightModifier: heightResizeModifier)
+    }
+
+    var resizeBindingSummary: String {
+        "\(widthResizeModifier.title) changes width. \(heightResizeModifier.title) changes height."
     }
 
     var lastCaptureSummary: String {
@@ -112,7 +266,7 @@ final class AppModel: ObservableObject {
             return "No PNG captured yet"
         }
 
-        return "\(selectedCapture.handoffStatus) - \(selectedCapture.fileSize)"
+        return "\(selectedCapture.displayHandoffStatus) - \(selectedCapture.fileSize)"
     }
 
     var historyLocationDescription: String {
@@ -132,6 +286,7 @@ final class AppModel: ObservableObject {
             overlayController.hide()
             currentTarget = nil
             resetHoverCache()
+            resetTargetAdjustment()
         }
 
         withAnimation(MotionSpec.navigationSpring) {
@@ -156,9 +311,9 @@ final class AppModel: ObservableObject {
             return
         }
 
-        handoffService.copyToPasteboard(pngData: pngData)
+        handoffService.copyToPasteboard(pngData: pngData, fileURL: historyStore.pngURL(for: capture))
         withAnimation(MotionSpec.quick) {
-            captureState = .copyFallback(reason: "Last PNG copied")
+            captureState = .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         }
     }
 
@@ -168,9 +323,9 @@ final class AppModel: ObservableObject {
             return
         }
 
-        handoffService.copyToPasteboard(pngData: pngData)
+        handoffService.copyToPasteboard(pngData: pngData, fileURL: historyStore.pngURL(for: capture))
         withAnimation(MotionSpec.quick) {
-            captureState = .copyFallback(reason: "PNG copied")
+            captureState = .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         }
     }
 
@@ -236,10 +391,110 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func testCodexHandoff() {
+        handoffStatusSummary = "Running App Server handoff test..."
+        appServerDiagnosticSummary = "Starting Codex App Server..."
+        lastErrorMessage = nil
+
+        Task {
+            let testImage = makeHandoffTestImage()
+            guard let testURL = writeHandoffTestImage(testImage) else {
+                let message = "Could not create a saved PNG for Codex App Server test."
+                handoffStatusSummary = message
+                appServerDiagnosticSummary = message
+                captureState = .readyToDrag(reason: message)
+                lastErrorMessage = message
+                return
+            }
+
+            let report = await handoffService.handoff(
+                pngData: testImage,
+                autoPaste: true,
+                fileURL: testURL,
+                codexCLIPathOverride: codexCLIPathOverride
+            )
+            handoffStatusSummary = report.summary
+            appServerDiagnosticSummary = report.appServerDiagnostics?.summary ?? "No App Server diagnostics were returned."
+            diagnostics.record("handoff.test result=\(report.result) note=\(report.note)")
+
+            withAnimation(MotionSpec.captureSpring) {
+                captureState = captureState(after: report)
+            }
+
+            if report.result.isAppServerAccepted {
+                lastErrorMessage = nil
+            } else if report.result.didAttemptPaste {
+                lastErrorMessage = "App Server test: paste attempted, but attachment receipt is not verified."
+            } else {
+                lastErrorMessage = "App Server test: \(report.note)"
+            }
+        }
+    }
+
+    private func makeHandoffTestImage() -> Data {
+        let width = 560
+        let height = 280
+
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return Data()
+        }
+
+        context.setFillColor(CGColor(red: 0.12, green: 0.12, blue: 0.15, alpha: 1.0))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        context.setFillColor(CGColor(red: 0.23, green: 0.68, blue: 1.0, alpha: 1.0))
+        context.fill(CGRect(x: 26, y: 200, width: width - 52, height: 56))
+
+        context.setFillColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 1.0))
+        context.fill(CGRect(x: 26, y: 28, width: width - 52, height: 128))
+
+        context.setStrokeColor(CGColor(red: 0.35, green: 0.9, blue: 0.95, alpha: 0.9))
+        context.setLineWidth(6)
+        context.stroke(CGRect(x: 26, y: 28, width: width - 52, height: 128))
+
+        guard let cgImage = context.makeImage() else { return Data() }
+        let bitmap = NSBitmapImageRep(cgImage: cgImage)
+        return bitmap.representation(using: .png, properties: [:]) ?? Data()
+    }
+
+    private func writeHandoffTestImage(_ data: Data) -> URL? {
+        guard !data.isEmpty else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CueShot-Handoff-Test-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        do {
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            diagnostics.record("handoff.test writeFailed error=\(error.localizedDescription)")
+            return nil
+        }
+    }
+
     func openMainWindow() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows.first { $0.title.contains("CueShot") }?.makeKeyAndOrderFront(nil)
+    }
+
+    func openSettings() {
+        hideCapturePuck()
+        settingsWindowController.show()
+    }
+
+    func openOnboarding() {
+        hideCapturePuck()
+        openMainWindow()
+        showOnboardingAgain()
     }
 
     func completeOnboarding(startCapture: Bool = false) {
@@ -254,6 +509,7 @@ final class AppModel: ObservableObject {
     }
 
     func showOnboardingAgain() {
+        hideCapturePuck()
         refreshPermissions()
         withAnimation(MotionSpec.captureSpring) {
             showOnboarding = true
@@ -352,6 +608,7 @@ final class AppModel: ObservableObject {
         lastErrorMessage = nil
         currentTarget = nil
         resetHoverCache()
+        resetTargetAdjustment()
         withAnimation(MotionSpec.navigationSpring) {
             captureState = .armed
         }
@@ -361,12 +618,17 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(for: .milliseconds(80))
             guard oneClickCaptureArmed else { return }
             let capturesAreaDrag = selectedMode == .area
-            gestureMonitorRunning = gestureMonitor.start(capturesPlainClick: !capturesAreaDrag, capturesAreaDrag: capturesAreaDrag)
+            gestureMonitorRunning = gestureMonitor.start(
+                capturesPlainClick: !capturesAreaDrag,
+                capturesAreaDrag: capturesAreaDrag,
+                excludedZones: capturePuckController.eventExclusionZones(),
+                resizeBindings: resizeBindings
+            )
             diagnostics.record("capturePuck.monitor running=\(gestureMonitorRunning)")
             if !gestureMonitorRunning {
                 oneClickCaptureArmed = false
                 captureState = .permissionNeeded(.accessibility)
-                lastErrorMessage = "CueShot could not start the one-click capture listener."
+                lastErrorMessage = "CueShot could not start the one-click capture listener. Reopen Accessibility permissions and try again."
             }
         }
     }
@@ -377,6 +639,7 @@ final class AppModel: ObservableObject {
         gestureMonitorRunning = false
         currentTarget = nil
         resetHoverCache()
+        resetTargetAdjustment()
         overlayController.hide()
         withAnimation(MotionSpec.quick) {
             captureState = permissions.screenRecordingGranted ? .ready : .permissionNeeded(.screenRecording)
@@ -408,6 +671,7 @@ final class AppModel: ObservableObject {
         gestureMonitorRunning = false
         currentTarget = nil
         resetHoverCache()
+        resetTargetAdjustment()
         overlayController.hide()
         withAnimation(MotionSpec.quick) {
             captureState = permissions.screenRecordingGranted ? .ready : .permissionNeeded(.screenRecording)
@@ -456,7 +720,10 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            let target = timedTarget(at: point, reason: "hover")
+            var target = timedTarget(at: point, reason: "hover")
+            if let adjustedTargetSize {
+                target = CaptureRectAdjuster.targetWithAdjustedRect(target, centeredAt: point, size: adjustedTargetSize)
+            }
             guard !shouldBlockOwnAppTarget(target) else {
                 currentTarget = nil
                 lastHoverTarget = nil
@@ -464,6 +731,28 @@ final class AppModel: ObservableObject {
                 return
             }
 
+            lastHoverTarget = target
+            lastHoverPoint = point
+            lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
+            currentTarget = target
+            withAnimation(MotionSpec.navigationSpring) {
+                captureState = .armed
+            }
+            overlayController.update(target: target, state: captureState)
+        case .resize(let point, let deltaX, let deltaY, let axis):
+            guard selectedMode != .area, oneClickCaptureArmed else { return }
+            guard !capturePuckController.containsScreenPoint(point) else { return }
+
+            let baseTarget = currentTarget ?? lastHoverTarget ?? timedTarget(at: point, reason: "resize")
+            guard !shouldBlockOwnAppTarget(baseTarget) else {
+                currentTarget = nil
+                lastHoverTarget = nil
+                overlayController.hide()
+                return
+            }
+
+            let target = CaptureRectAdjuster.resizedTarget(baseTarget, centeredAt: point, deltaX: deltaX, deltaY: deltaY, axis: axis)
+            adjustedTargetSize = target.rect.size
             lastHoverTarget = target
             lastHoverPoint = point
             lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
@@ -491,6 +780,7 @@ final class AppModel: ObservableObject {
             gestureMonitor.stop()
             gestureMonitorRunning = false
             resetHoverCache()
+            resetTargetAdjustment()
 
             let target = axHitTestService.areaTarget(from: start, to: end)
             guard target.rect.width >= minimumAreaSize, target.rect.height >= minimumAreaSize else {
@@ -512,6 +802,7 @@ final class AppModel: ObservableObject {
             }
             currentTarget = nil
             resetHoverCache()
+            resetTargetAdjustment()
             withAnimation(MotionSpec.quick) {
                 captureState = .ready
             }
@@ -521,11 +812,17 @@ final class AppModel: ObservableObject {
                 return
             }
 
+            let preparedTarget = selectedMode == .area ? nil : currentTarget
             oneClickCaptureArmed = false
             gestureMonitor.stop()
             gestureMonitorRunning = false
             resetHoverCache()
-            capture(at: point)
+            resetTargetAdjustment()
+            if let preparedTarget, !shouldBlockOwnAppTarget(preparedTarget) {
+                capture(target: preparedTarget)
+            } else {
+                capture(at: point)
+            }
         case .tripleClick(let point):
             capture(at: point)
         }
@@ -580,17 +877,40 @@ final class AppModel: ObservableObject {
                 let persistedRecord = try historyStore.persist(result: result)
                 diagnostics.record("capture.persisted id=\(persistedRecord.id.uuidString) size=\(result.pngData.count)")
 
-                let handoff = handoffService.handoff(pngData: result.pngData, autoPaste: autoPasteToCodex)
-                let finalRecord = persistedRecord.withHandoffStatus(handoff == .sent ? "Sent" : "Copied")
+                let handoff = await handoffService.handoff(
+                    pngData: result.pngData,
+                    autoPaste: autoPasteToCodex,
+                    fileURL: historyStore.pngURL(for: persistedRecord),
+                    codexCLIPathOverride: codexCLIPathOverride
+                )
+                let finalRecord = persistedRecord.withHandoffStatus(handoff.result.historyStatus)
                 try? historyStore.update(finalRecord)
                 insertCapture(finalRecord)
-                diagnostics.record("capture.handoff result=\(handoff)")
+                handoffStatusSummary = handoff.summary
+                if let appServerDiagnostics = handoff.appServerDiagnostics {
+                    appServerDiagnosticSummary = appServerDiagnostics.summary
+                }
+                diagnostics.record("capture.handoff result=\(handoff.result) note=\(handoff.note) codex=\(handoff.codexDescription ?? "none")")
                 withAnimation(MotionSpec.captureSpring) {
-                    captureState = handoff == .sent ? .sentToCodex : .copyFallback(reason: "PNG copied - focus Codex and paste")
+                    captureState = captureState(after: handoff)
+                }
+
+                if handoff.result.isAppServerAccepted {
+                    lastErrorMessage = nil
+                } else if handoff.result.didAttemptPaste {
+                    lastErrorMessage = autoPasteToCodex ? "App Server handoff: paste attempted, but attachment receipt is not verified." : nil
+                } else if autoPasteToCodex {
+                    lastErrorMessage = "App Server handoff: \(handoff.note)"
+                } else {
+                    lastErrorMessage = nil
                 }
 
                 try? await Task.sleep(for: .milliseconds(680))
-                if case .sentToCodex = captureState {
+                if case .pasteAttempted = captureState {
+                    overlayController.hide()
+                } else if case .codexAppServerAccepted = captureState {
+                    overlayController.hide()
+                } else if case .readyToDrag = captureState {
                     overlayController.hide()
                 } else if case .copyFallback = captureState {
                     overlayController.hide()
@@ -612,6 +932,25 @@ final class AppModel: ObservableObject {
         recentCaptures.insert(capture, at: 0)
         recentCaptures = Array(recentCaptures.prefix(30))
         selectedCaptureID = capture.id
+    }
+
+    private func captureState(after report: HandoffReport) -> CaptureState {
+        switch report.result {
+        case .codexAppServerAccepted:
+            return .codexAppServerAccepted
+        case .codexAppServerUnavailable, .codexAppServerFailed:
+            return .readyToDrag(reason: report.note)
+        case .copiedOnly:
+            return .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
+        case .pasteAttempted, .sentVerified:
+            return .pasteAttempted
+        case .clipboardWriteFailed,
+             .codexUnavailable,
+             .codexFocusFailed,
+             .codexPasteTargetUnavailable,
+             .pasteEventBlocked:
+            return .copyFallback(reason: report.note)
+        }
     }
 
     private func centerPointOfMainDisplay() -> CGPoint {
@@ -663,6 +1002,38 @@ final class AppModel: ObservableObject {
         lastHoverTarget = nil
     }
 
+    private func resetTargetAdjustment() {
+        adjustedTargetSize = nil
+    }
+
+    private func selectModeAndRevealControl(_ mode: CaptureMode) {
+        selectMode(mode)
+        showCapturePuck()
+    }
+
+    private static func loadCommandShortcuts(from userDefaults: UserDefaults) -> [CueShotCommand: CueShotShortcut] {
+        var shortcuts = CueShotCommand.defaultShortcuts
+        guard let data = userDefaults.data(forKey: PreferenceKey.commandShortcuts),
+              let decoded = try? JSONDecoder().decode([String: CueShotShortcut].self, from: data)
+        else {
+            return shortcuts
+        }
+
+        for (rawCommand, shortcut) in decoded {
+            guard let command = CueShotCommand(rawValue: rawCommand) else { continue }
+            shortcuts[command] = shortcut
+        }
+        return shortcuts
+    }
+
+    private func persistCommandShortcuts() {
+        let encodedShortcuts = Dictionary(uniqueKeysWithValues: commandShortcuts.map { command, shortcut in
+            (command.rawValue, shortcut)
+        })
+        guard let data = try? JSONEncoder().encode(encodedShortcuts) else { return }
+        userDefaults.set(data, forKey: PreferenceKey.commandShortcuts)
+    }
+
     private func suggestedFileName(for capture: CaptureRecord) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
@@ -695,9 +1066,14 @@ final class AppModel: ObservableObject {
 private enum PreferenceKey {
     static let selectedMode = "selectedMode"
     static let autoPasteToCodex = "autoPasteToCodex"
+    static let codexCLIPathOverride = "codexCLIPathOverride"
     static let showCaptureButtonAtLaunch = "showCaptureButtonAtLaunch"
     static let fileNameTemplate = "fileNameTemplate"
+    static let widthResizeModifier = "widthResizeModifier"
+    static let heightResizeModifier = "heightResizeModifier"
+    static let commandShortcuts = "commandShortcuts"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let clipboardFirstMigrationVersion = "clipboardFirstMigrationVersion"
 }
 
 private extension GestureEvent {
@@ -706,6 +1082,9 @@ private extension GestureEvent {
             return true
         }
         if case .areaChanged = self {
+            return true
+        }
+        if case .resize = self {
             return true
         }
         return false
@@ -803,11 +1182,11 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
 
     var puckIdleDetail: String {
         switch self {
-        case .element: "Exact click to Codex"
-        case .selection: "Estimated click to Codex"
-        case .window: "Window click to Codex"
-        case .area: "Drag region to Codex"
-        case .screen: "Display click to Codex"
+        case .element: "Exact click capture"
+        case .selection: "Estimated click crop"
+        case .window: "Window click capture"
+        case .area: "Drag region capture"
+        case .screen: "Display click capture"
         }
     }
 
@@ -824,7 +1203,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
     var puckArmedDetail: String {
         switch self {
         case .area: "Drag, release, done. Esc cancels."
-        default: "One click captures. Esc cancels."
+        default: "Scroll resizes. Click captures."
         }
     }
 }
@@ -834,7 +1213,9 @@ enum CaptureState: Equatable {
     case armed
     case selectingArea
     case capturing
-    case sentToCodex
+    case pasteAttempted
+    case codexAppServerAccepted
+    case readyToDrag(reason: String)
     case permissionNeeded(PermissionKind)
     case codexNotFocused
     case copyFallback(reason: String)
@@ -845,7 +1226,9 @@ enum CaptureState: Equatable {
         case .armed: "Armed"
         case .selectingArea: "Selecting Area"
         case .capturing: "Capturing"
-        case .sentToCodex: "Sent"
+        case .pasteAttempted: "Paste Attempted"
+        case .codexAppServerAccepted: "App Server Accepted"
+        case .readyToDrag: "Ready to Drag"
         case .permissionNeeded(let kind): kind == .accessibility ? "Needs AX" : "Needs Screen"
         case .codexNotFocused: "Codex Not Focused"
         case .copyFallback: "Fallback"
@@ -855,10 +1238,12 @@ enum CaptureState: Equatable {
     var detail: String {
         switch self {
         case .ready: "Use the floating control to arm the selected capture type."
-        case .armed: "Click or drag the target. Escape stops."
+        case .armed: "Scroll resizes. Modifier keys adjust one side."
         case .selectingArea: "Drag to draw the capture rectangle."
         case .capturing: "Freezing the target rectangle."
-        case .sentToCodex: "PNG prepared for Codex."
+        case .pasteAttempted: "Legacy paste attempt. Verify Codex attached it."
+        case .codexAppServerAccepted: "A new Codex App Server thread accepted the image. Drag the PNG into visible Codex if it does not appear."
+        case .readyToDrag(let reason): reason
         case .permissionNeeded(let kind): kind.message
         case .codexNotFocused: "Capture copied. Focus Codex to paste."
         case .copyFallback(let reason): reason
@@ -899,9 +1284,18 @@ struct PermissionStatus: Equatable {
     static let mockGranted = PermissionStatus(accessibilityGranted: true, screenRecordingGranted: true)
 }
 
-enum HandoffResult {
-    case sent
-    case copied
+enum HandoffResult: Equatable {
+    case copiedOnly
+    case clipboardWriteFailed
+    case codexUnavailable
+    case codexFocusFailed
+    case codexPasteTargetUnavailable
+    case codexAppServerUnavailable
+    case codexAppServerFailed
+    case codexAppServerAccepted
+    case pasteEventBlocked
+    case pasteAttempted
+    case sentVerified
 }
 
 struct CaptureRecord: Identifiable, Codable, Equatable {
@@ -916,11 +1310,20 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
     let handoffStatus: String
     let pngRelativePath: String?
 
+    var displayHandoffStatus: String {
+        switch handoffStatus {
+        case "Paste attempted", "Codex focus failed", "Copied":
+            "Copied to Clipboard"
+        default:
+            handoffStatus
+        }
+    }
+
     static let samples: [CaptureRecord] = [
-        CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-42), mode: .element, confidence: "Exact", sourceAppName: "Safari", axRole: "AXButton", dimensions: "286 x 144", fileSize: "418 KB", handoffStatus: "Sent", pngRelativePath: nil),
+        CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-42), mode: .element, confidence: "Exact", sourceAppName: "Safari", axRole: "AXButton", dimensions: "286 x 144", fileSize: "418 KB", handoffStatus: "Copied", pngRelativePath: nil),
         CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-140), mode: .selection, confidence: "Estimated", sourceAppName: "Finder", axRole: "Estimated", dimensions: "260 x 160", fileSize: "362 KB", handoffStatus: "Copied", pngRelativePath: nil),
         CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-310), mode: .window, confidence: "Window", sourceAppName: "Codex", axRole: "NSWindow", dimensions: "760 x 480", fileSize: "1.2 MB", handoffStatus: "Copied", pngRelativePath: nil),
-        CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-840), mode: .area, confidence: "Area", sourceAppName: "Xcode", axRole: "Selection", dimensions: "512 x 320", fileSize: "922 KB", handoffStatus: "Sent", pngRelativePath: nil)
+        CaptureRecord(id: UUID(), createdAt: .now.addingTimeInterval(-840), mode: .area, confidence: "Area", sourceAppName: "Xcode", axRole: "Selection", dimensions: "512 x 320", fileSize: "922 KB", handoffStatus: "Copied", pngRelativePath: nil)
     ]
 
     func withPNGRelativePath(_ path: String) -> CaptureRecord {

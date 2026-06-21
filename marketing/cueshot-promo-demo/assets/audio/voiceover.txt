@@ -3,5 +3,5 @@ Open the menu bar control, press Arm, then click or drag.
 Use Element for exact bounds, Selection for a fast crop, or Area for a manual rectangle.
 In Element mode, CueShot follows the UI under your cursor and locks the exact control you mean.
 Here, a settings toggle is selected cleanly, without grabbing the whole window.
-Then CueShot saves a local PNG, sends to Codex when available, and keeps clipboard fallback ready.
+Then CueShot saves a local PNG, copies it instantly, and shows a preview you can paste or drag into Codex.
 It stays local, explains permissions, and helps builders show exactly what they mean.

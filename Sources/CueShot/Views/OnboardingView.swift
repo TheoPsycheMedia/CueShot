@@ -4,54 +4,74 @@ struct OnboardingView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.38)
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            let panelWidth = min(max(geometry.size.width - 48, 360), 620)
+            let panelHeight = min(max(geometry.size.height - 48, 360), 720)
 
-            VStack(alignment: .leading, spacing: 18) {
-                header
+            ZStack {
+                Color.black.opacity(0.38)
+                    .ignoresSafeArea()
 
-                VStack(spacing: 10) {
-                    OnboardingLoopRow()
-                    OnboardingModeRow()
-                    OnboardingPermissionRow(model: model)
-                    OnboardingLocalRow()
-                }
+                VStack(spacing: 0) {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            header
 
-                HStack(spacing: 10) {
-                    Button {
-                        model.completeOnboarding()
-                    } label: {
-                        Text("Done")
-                            .frame(maxWidth: .infinity)
+                            VStack(spacing: 10) {
+                                OnboardingLoopRow()
+                                OnboardingModeRow()
+                                OnboardingPermissionRow(model: model)
+                                OnboardingLocalRow()
+                            }
+                        }
+                        .padding(22)
                     }
-                    .buttonStyle(PressableMotionStyle())
-                    .cueGlass(cornerRadius: 14, interactive: true)
 
-                    Button {
-                        model.completeOnboarding(startCapture: true)
-                    } label: {
-                        Label("Show Floating Control", systemImage: "scope")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PressableMotionStyle())
-                    .cueTintedGlass(CueColor.reticle.opacity(0.24), cornerRadius: 14, interactive: true)
+                    actionRow
+                        .padding(.horizontal, 22)
+                        .padding(.top, 12)
+                        .padding(.bottom, 18)
+                        .background(CueColor.surfaceBase.opacity(0.48))
                 }
-                .font(.system(size: 13, weight: .medium))
+                .frame(width: panelWidth, height: panelHeight)
+                .cueGlass(cornerRadius: 28)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .strokeBorder(CueColor.reticle.opacity(0.18), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .shadow(color: .black.opacity(0.38), radius: 40, y: 24)
             }
-            .padding(22)
-            .frame(width: 620)
-            .cueGlass(cornerRadius: 28)
-            .overlay {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(CueColor.reticle.opacity(0.18), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.38), radius: 40, y: 24)
         }
         .transition(.opacity.combined(with: .scale(scale: 0.985)))
         .onAppear {
             model.refreshPermissions()
         }
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                model.completeOnboarding()
+            } label: {
+                Text("Done")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PressableMotionStyle())
+            .cueGlass(cornerRadius: 14, interactive: true)
+            .accessibilityHint("Closes onboarding and keeps CueShot ready.")
+
+            Button {
+                model.completeOnboarding(startCapture: true)
+            } label: {
+                Label("Show Floating Control", systemImage: "scope")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PressableMotionStyle())
+            .cueTintedGlass(CueColor.reticle.opacity(0.24), cornerRadius: 14, interactive: true)
+            .accessibilityHint("Closes onboarding and shows the floating capture control.")
+        }
+        .font(.system(size: 13, weight: .medium))
     }
 
     private var header: some View {
@@ -68,7 +88,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Set up CueShot")
                     .font(.system(size: 22, weight: .semibold))
-                Text("Choose a capture type, arm the floating control, then click or drag. CueShot saves a PNG and sends or copies it to Codex.")
+                Text("Choose a capture type, arm the floating control, then click or drag. CueShot saves a clean PNG, copies it to the clipboard, and shows a preview you can paste or drag into Codex.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -86,6 +106,8 @@ struct OnboardingView: View {
             .buttonStyle(.plain)
             .cueGlass(cornerRadius: 14, interactive: true)
             .help("Close onboarding")
+            .accessibilityLabel("Close onboarding")
+            .accessibilityHint("Closes setup and returns to the main CueShot window.")
         }
     }
 }
@@ -97,7 +119,7 @@ private struct OnboardingLoopRow: View {
                 LocalChip(title: "Choose type", systemImage: "rectangle.grid.1x2")
                 LocalChip(title: "Arm control", systemImage: "scope")
                 LocalChip(title: "Click or drag", systemImage: "cursorarrow.click")
-                LocalChip(title: "Sent or copied", systemImage: "paperplane")
+                LocalChip(title: "Paste or drag", systemImage: "paperplane")
             }
         }
     }
@@ -148,7 +170,7 @@ private struct OnboardingLocalRow: View {
         OnboardingBand(systemImage: "internaldrive", title: "Keep the loop local") {
             HStack(spacing: 8) {
                 LocalChip(title: "PNG history", systemImage: "clock.arrow.circlepath")
-                LocalChip(title: "Clipboard fallback", systemImage: "doc.on.clipboard")
+                LocalChip(title: "Clipboard preview", systemImage: "doc.on.clipboard")
                 LocalChip(title: "No cloud sync", systemImage: "wifi.slash")
             }
         }
@@ -182,6 +204,8 @@ private struct OnboardingBand<Content: View>: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
     }
 }
 
@@ -205,6 +229,8 @@ private struct ModeChip: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(detail)")
     }
 }
 
@@ -229,7 +255,10 @@ private struct PermissionSetupLine: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(.white.opacity(granted ? 0.045 : 0.10), in: Capsule())
+            .accessibilityLabel(granted ? "\(title) granted" : "Open \(title) settings")
+            .accessibilityHint(granted ? "This permission is already enabled." : "Opens macOS System Settings for this permission.")
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -243,5 +272,6 @@ private struct LocalChip: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(.white.opacity(0.07), in: Capsule())
+            .accessibilityLabel(title)
     }
 }

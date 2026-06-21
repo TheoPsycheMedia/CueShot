@@ -216,7 +216,7 @@ private struct LiveTargetPlate: View {
                     }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Release and CueShot will save the PNG, copy it, and send it to Codex when available.")
+                    Text("Release and CueShot will save the PNG, copy it, and show it in the floating preview.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(3)

@@ -91,6 +91,32 @@ private struct WindowHeader: View {
 
             Spacer()
 
+            Button {
+                model.openOnboarding()
+            } label: {
+                Label("Onboarding", systemImage: "questionmark.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .buttonStyle(PressableMotionStyle())
+            .cueGlass(cornerRadius: 12, interactive: true)
+            .help("Open CueShot onboarding")
+            .accessibilityLabel("Onboarding")
+            .accessibilityHint("Shows the capture workflow, permissions, and setup steps.")
+
+            Button {
+                model.openSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+                    .labelStyle(.titleAndIcon)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .buttonStyle(PressableMotionStyle())
+            .cueGlass(cornerRadius: 12, interactive: true)
+            .help("Open CueShot settings")
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Opens capture, output, resize key, permission, and history settings.")
+
             StatusPill(state: model.captureState)
         }
         .padding(.horizontal, 2)

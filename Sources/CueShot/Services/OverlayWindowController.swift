@@ -22,9 +22,10 @@ final class OverlayWindowController {
             panel.backgroundColor = .clear
             panel.isOpaque = false
             panel.hasShadow = false
+            panel.appearance = NSAppearance(named: .darkAqua)
             panel.ignoresMouseEvents = true
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-            panel.contentView = NSHostingView(rootView: CaptureOverlayPanelView(model: model, screenFrame: screen.frame))
+            panel.contentView = NSHostingView(rootView: CaptureOverlayPanelView(model: model, screenFrame: screen.frame).preferredColorScheme(.dark))
             panel.orderFrontRegardless()
             return panel
         }

@@ -15,6 +15,7 @@ struct CueShotApp: App {
         WindowGroup("CueShot", id: "main") {
             ContentView(model: model)
                 .frame(minWidth: 900, idealWidth: 980, maxWidth: 1180, minHeight: 620, idealHeight: 680, maxHeight: 820)
+                .preferredColorScheme(.dark)
                 .onAppear {
                     appDelegate.model = model
                     model.refreshPermissions()
@@ -23,32 +24,64 @@ struct CueShotApp: App {
         .windowResizability(.contentSize)
         .commands {
             CommandMenu("Capture") {
-                Button("Show Capture Control") {
-                    model.showCapturePuck()
-                }
-                .keyboardShortcut("1", modifiers: [.command, .shift])
-
-                Button(model.capturePuckVisible ? "Hide Capture Control" : "Show Capture Control") {
-                    model.toggleCapturePuck()
-                }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-
-                Button("Cancel Capture") {
-                    model.stopGestureMonitor()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
+                CueShotCommandMenuButton(model: model, command: .showCaptureControl)
+                CueShotCommandMenuButton(model: model, command: .toggleCaptureControl)
+                CueShotCommandMenuButton(model: model, command: .armCapture)
+                CueShotCommandMenuButton(model: model, command: .cancelCapture)
 
                 Divider()
 
-                Button("Copy Last PNG") {
-                    model.copyLastCapture()
-                }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
+                CueShotCommandMenuButton(model: model, command: .selectElementMode)
+                CueShotCommandMenuButton(model: model, command: .selectSelectionMode)
+                CueShotCommandMenuButton(model: model, command: .selectWindowMode)
+                CueShotCommandMenuButton(model: model, command: .selectAreaMode)
+                CueShotCommandMenuButton(model: model, command: .selectScreenMode)
+
+                Divider()
+
+                CueShotCommandMenuButton(model: model, command: .copyLastPNG)
+                CueShotCommandMenuButton(model: model, command: .openSettings)
+                CueShotCommandMenuButton(model: model, command: .showOnboarding)
             }
         }
 
         Settings {
             SettingsView(model: model)
+                .preferredColorScheme(.dark)
+        }
+    }
+}
+
+private struct CueShotCommandMenuButton: View {
+    @ObservedObject var model: AppModel
+    let command: CueShotCommand
+
+    var body: some View {
+        Button(menuTitle) {
+            model.performCommand(command)
+        }
+        .cueKeyboardShortcut(model.shortcut(for: command))
+    }
+
+    private var menuTitle: String {
+        switch command {
+        case .toggleCaptureControl:
+            model.capturePuckVisible ? "Hide Capture Control" : "Show Capture Control"
+        case .openSettings:
+            "Settings..."
+        default:
+            command.title
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func cueKeyboardShortcut(_ shortcut: CueShotShortcut) -> some View {
+        if let key = shortcut.key {
+            keyboardShortcut(key.keyEquivalent, modifiers: shortcut.eventModifiers)
+        } else {
+            self
         }
     }
 }
@@ -72,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model = appModel
         DiagnosticsLogger().record("app.launch modelReady showAtLaunch=\(appModel.showCaptureButtonAtLaunch)")
         NSApp.setActivationPolicy(.regular)
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = icon

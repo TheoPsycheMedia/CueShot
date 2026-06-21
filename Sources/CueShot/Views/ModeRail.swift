@@ -43,11 +43,17 @@ struct ModeRail: View {
                 .buttonStyle(PressableMotionStyle())
                 .cueGlass(cornerRadius: 16, interactive: true)
                 .help(mode.helpText)
+                .accessibilityLabel("\(mode.title) capture mode")
+                .accessibilityValue(mode.methodTitle)
+                .accessibilityHint(mode.helpText)
+                .accessibilityAddTraits(model.selectedMode == mode ? [.isSelected] : [])
             }
 
             Spacer(minLength: 0)
         }
         .padding(8)
         .cueGlass(cornerRadius: 22)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Capture modes")
     }
 }

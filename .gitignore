@@ -16,9 +16,11 @@ dist/
 # Local logs and diagnostics
 *.log
 *.trace
+.lume/
 
 # Internal design-review captures can include local desktop context.
 audits/
+test-artifacts/
 
 # JavaScript tooling used by marketing/demo sources
 node_modules/
