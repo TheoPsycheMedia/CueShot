@@ -10,7 +10,7 @@ Tagline: "Arm, click, and drop any interface detail into Codex."
 
 CueShot should feel less like a screenshot manager and more like a precise optical instrument: compact, calm, native, fast, and trustworthy. The product exists for one narrow workflow: capture the exact visible UI element the user is referencing, prepare a clean PNG, and hand it to Codex with the least possible ceremony. It is not a dashboard, creative suite, annotation tool, cloud sync product, or generic screenshot app.
 
-Primary users are engineers, designers, QA testers, and product builders using Codex to discuss UI bugs, implementation details, visual regressions, websites, desktop apps, or screen states. The hero moment is: click the CueShot menu bar icon, arm the floating capture control, click or drag a visible UI target, and see the screenshot appear in Codex or land on the clipboard fallback.
+Primary users are engineers, designers, QA testers, and product builders using Codex to discuss UI bugs, implementation details, visual regressions, websites, desktop apps, or screen states. The hero moment is: click the CueShot menu bar icon, arm the floating capture control, click or drag a visible UI target, then see a polished clipboard preview with Copy, Reveal, and Open actions. The user can paste or drag the PNG into Codex.
 
 The product promise is precision plus calm: "I know what you clicked, I captured only that, and I placed it where you needed it."
 
@@ -109,11 +109,11 @@ Motion must be short, spatial, and useful.
 | Preview settle | 180 ms | spring response 0.28, damping 0.82 |
 | Error shake | 220 ms | horizontal +/- 5 pt |
 
-No bouncy marketing animation. No full-screen confetti. Sent state uses one green check pulse only.
+No bouncy marketing animation. No full-screen confetti. Paste-attempt state uses one restrained check pulse only; do not imply verified delivery unless receipt is actually verified.
 
 ### Components
 
-Status Pill: Height 24 pt, horizontal padding 10 pt, radius 12 pt. Dot size 7 pt. Text micro. States: Ready, Armed, Capturing, Sent, Needs Permission, Copy Fallback.
+Status Pill: Height 24 pt, horizontal padding 10 pt, radius 12 pt. Dot size 7 pt. Text micro. States: Ready, Armed, Capturing, Paste Attempted, Needs Permission, Copy Fallback.
 
 Primary Button: Height 32 pt, radius 9 pt, horizontal padding 14 pt. Text `body.medium`. Default fill `text.primary`, text inverse. Disabled opacity 45%.
 
@@ -136,7 +136,7 @@ Labels:
 - Ready
 - Armed
 - Capturing
-- Sent
+- Paste Attempted
 - Needs AX
 - Needs Screen
 - Fallback
@@ -201,17 +201,17 @@ States:
 - Ready: permissions valid, Codex may or may not be focused.
 - Armed: floating control pressed; overlay reticle follows cursor.
 - Capturing: click or drag recognized; freeze target rect and capture frame.
-- Sent to Codex: PNG placed into Codex successfully.
+- Paste Attempted: PNG copied and paste shortcut sent toward Codex, but attachment receipt is not verified.
 - Permission Needed: missing Screen Recording or Accessibility.
 - Codex Not Focused: capture succeeds but auto-paste is unsafe.
-- Copy Fallback: PNG copied to clipboard; user can paste manually.
+- Copied: PNG copied to clipboard; user can paste manually, drag the preview, or reveal the saved PNG.
 
 State transitions:
 
 - Ready -> Armed: floating Arm button pressed.
 - Armed -> Ready: Escape, Cancel, or completed capture.
 - Armed -> Capturing: valid click or drag for selected mode.
-- Capturing -> Sent: Codex focused and paste event accepted.
+- Capturing -> Paste Attempted: Codex focused and paste shortcut posted.
 - Capturing -> Copy Fallback: Codex not focused, paste blocked, or target app unknown.
 - Any state -> Permission Needed: permission check fails.
 
@@ -283,11 +283,11 @@ Auto-paste sequence:
 
 1. Encode capture as PNG.
 2. Save to history.
-3. Write PNG to clipboard.
+3. Write PNG and file URL to clipboard.
 4. Resolve Codex target app/window.
 5. Activate target app with `NSRunningApplication.activate`.
 6. Send Command-V via `CGEvent` keyboard event.
-7. Verify clipboard change count and foreground app state; show Sent or Fallback.
+7. Verify clipboard write; keep the floating preview visible and show Copied to Clipboard. Do not show Sent unless an optional advanced App Server receipt is actually verified.
 
 ## 6. Core Services And Classes
 
@@ -364,7 +364,7 @@ Responsibilities:
 - Draw reticle, target rect, labels.
 - Update at pointer cadence while Armed.
 - Freeze and flash during Capturing.
-- Dismiss after Sent/Fallback.
+- Dismiss after Paste Attempted/Fallback.
 
 ### CodexHandoffService
 
@@ -409,7 +409,7 @@ enum CaptureState: Equatable {
     case ready
     case armed(point: CGPoint?)
     case capturing
-    case sentToCodex
+    case pasteAttempted
     case permissionNeeded(PermissionKind)
     case codexNotFocused
     case copyFallback(reason: String)
@@ -486,7 +486,7 @@ Defaults: launch at login false, mode element, auto-paste true, keep history 30,
 CueShot requires two sensitive permissions:
 
 - Screen Recording: required to capture visible screen pixels.
-- Accessibility: required for global gesture confidence, AX hit-testing, app/window metadata, and paste automation.
+- Accessibility: required for global gesture confidence, AX hit-testing, app/window metadata, and precise element bounds.
 
 Privacy rules:
 

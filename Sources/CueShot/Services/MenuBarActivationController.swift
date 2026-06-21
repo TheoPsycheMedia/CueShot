@@ -31,6 +31,10 @@ final class MenuBarActivationController: NSObject {
         model?.stopGestureMonitor()
     }
 
+    @objc private func armCapture() {
+        model?.activateCaptureFromMenuBar()
+    }
+
     @objc private func showButton() {
         model?.showCapturePuck()
     }
@@ -41,6 +45,14 @@ final class MenuBarActivationController: NSObject {
 
     @objc private func openMainWindow() {
         model?.openMainWindow()
+    }
+
+    @objc private func openSettings() {
+        model?.openSettings()
+    }
+
+    @objc private func openOnboarding() {
+        model?.openOnboarding()
     }
 
     @objc private func copyLastPNG() {
@@ -58,10 +70,14 @@ final class MenuBarActivationController: NSObject {
 
         if armed {
             menu.addItem(menuItem(title: "Cancel Capture", action: #selector(stopCapture), key: ""))
+        } else {
+            menu.addItem(menuItem(title: "Arm Capture", action: #selector(armCapture), key: ""))
         }
         menu.addItem(menuItem(title: buttonVisible ? "Hide Capture Control" : "Show Capture Control", action: buttonVisible ? #selector(hideButton) : #selector(showButton), key: ""))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Open CueShot", action: #selector(openMainWindow), key: ""))
+        menu.addItem(menuItem(title: "Settings...", action: #selector(openSettings), key: ","))
+        menu.addItem(menuItem(title: "Onboarding", action: #selector(openOnboarding), key: ""))
         menu.addItem(menuItem(title: "Copy Last PNG", action: #selector(copyLastPNG), key: ""))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Quit CueShot", action: #selector(quit), key: "q"))

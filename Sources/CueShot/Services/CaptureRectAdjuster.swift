@@ -1,0 +1,93 @@
+import CoreGraphics
+
+struct CaptureRectAdjuster {
+    private static let minimumSize = CGSize(width: 28, height: 28)
+    private static let lineScrollScale: CGFloat = 7
+    private static let preciseScrollScale: CGFloat = 28
+
+    static func resizedTarget(
+        _ target: CaptureTarget,
+        centeredAt point: CGPoint,
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        axis: CaptureResizeAxis
+    ) -> CaptureTarget {
+        let size = adjustedSize(
+            from: target.rect.size,
+            deltaX: deltaX,
+            deltaY: deltaY,
+            axis: axis,
+            screenFrame: target.screenFrame
+        )
+
+        return targetWithAdjustedRect(target, centeredAt: point, size: size)
+    }
+
+    static func targetWithAdjustedRect(
+        _ target: CaptureTarget,
+        centeredAt point: CGPoint,
+        size: CGSize
+    ) -> CaptureTarget {
+        let rect = clampedRect(centeredAt: point, size: size, screenFrame: target.screenFrame)
+
+        return CaptureTarget(
+            point: point,
+            screenFrame: target.screenFrame,
+            rect: rect,
+            sourceAppName: target.sourceAppName,
+            sourceBundleID: target.sourceBundleID,
+            axRole: target.axRole,
+            axSubrole: target.axSubrole,
+            axTitle: target.axTitle,
+            confidence: .adjusted
+        )
+    }
+
+    static func adjustedSize(
+        from currentSize: CGSize,
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        axis: CaptureResizeAxis,
+        screenFrame: CGRect
+    ) -> CGSize {
+        let horizontalStep = scrollStep(deltaX)
+        let verticalStep = scrollStep(deltaY)
+        let dominantStep = abs(verticalStep) >= abs(horizontalStep) ? verticalStep : horizontalStep
+        var width = currentSize.width
+        var height = currentSize.height
+
+        switch axis {
+        case .both:
+            width += dominantStep
+            height += dominantStep
+        case .width:
+            width += horizontalStep != 0 ? horizontalStep : dominantStep
+        case .height:
+            height += verticalStep != 0 ? verticalStep : dominantStep
+        }
+
+        return CGSize(
+            width: clamp(width, min: minimumSize.width, max: max(minimumSize.width, screenFrame.width)),
+            height: clamp(height, min: minimumSize.height, max: max(minimumSize.height, screenFrame.height))
+        )
+    }
+
+    private static func clampedRect(centeredAt point: CGPoint, size: CGSize, screenFrame: CGRect) -> CGRect {
+        let width = clamp(size.width, min: minimumSize.width, max: max(minimumSize.width, screenFrame.width))
+        let height = clamp(size.height, min: minimumSize.height, max: max(minimumSize.height, screenFrame.height))
+        let originX = clamp(point.x - width / 2, min: screenFrame.minX, max: screenFrame.maxX - width)
+        let originY = clamp(point.y - height / 2, min: screenFrame.minY, max: screenFrame.maxY - height)
+
+        return CGRect(x: originX, y: originY, width: width, height: height).integral
+    }
+
+    private static func scrollStep(_ delta: CGFloat) -> CGFloat {
+        guard delta != 0 else { return 0 }
+        let scale = abs(delta) < 1 ? preciseScrollScale : lineScrollScale
+        return delta * scale
+    }
+
+    private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(value, minimum), maximum)
+    }
+}

@@ -44,6 +44,7 @@ final class GlobalGestureMonitor {
     private var runLoopSource: CFRunLoopSource?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private let eventTapContext = GestureEventTapContext()
     private var detector = TripleClickDetector()
     private var commandDown = false
     private var capturesNextPlainClick = false
@@ -55,25 +56,36 @@ final class GlobalGestureMonitor {
     private let moveEmitInterval: TimeInterval = 0.050
     private let moveEmitDistance: CGFloat = 22
 
-    func start(capturesPlainClick: Bool = false, capturesAreaDrag: Bool = false) -> Bool {
+    func start(
+        capturesPlainClick: Bool = false,
+        capturesAreaDrag: Bool = false,
+        excludedZones: [GestureExclusionZone] = [],
+        resizeBindings: CaptureResizeBindings = CaptureResizeBindings()
+    ) -> Bool {
         capturesNextPlainClick = capturesNextPlainClick || capturesPlainClick
         capturesNextAreaDrag = capturesNextAreaDrag || capturesAreaDrag
         isRunning = true
         areaDragStart = nil
         lastMoveEmittedAt = 0
         lastMoveEmittedPoint = nil
+        eventTapContext.monitor = self
+        eventTapContext.configure(
+            capturesPlainClick: capturesNextPlainClick,
+            capturesAreaDrag: capturesNextAreaDrag,
+            excludedZones: excludedZones,
+            resizeBindings: resizeBindings
+        )
 
         guard eventTap == nil, localEventMonitor == nil, globalEventMonitor == nil else {
             return true
         }
-
-        installEventMonitors()
 
         let mask =
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
             (1 << CGEventType.mouseMoved.rawValue) |
+            (1 << CGEventType.scrollWheel.rawValue) |
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
 
@@ -82,33 +94,23 @@ final class GlobalGestureMonitor {
                 return Unmanaged.passUnretained(event)
             }
 
-            let monitor = Unmanaged<GlobalGestureMonitor>.fromOpaque(userInfo).takeUnretainedValue()
-            let snapshot = GlobalGestureSnapshot(
-                type: type,
-                point: event.location,
-                timestamp: TimeInterval(event.timestamp) / 1_000_000_000,
-                commandDown: event.flags.contains(.maskCommand),
-                keyCode: type == .keyDown ? event.getIntegerValueField(.keyboardEventKeycode) : nil
-            )
-
-            Task { @MainActor in
-                monitor.handle(snapshot)
-            }
-            return Unmanaged.passUnretained(event)
+            let context = Unmanaged<GestureEventTapContext>.fromOpaque(userInfo).takeUnretainedValue()
+            return context.handle(type: type, event: event)
         }
 
+        let requiresEventSuppression = capturesNextPlainClick || capturesNextAreaDrag
         let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: requiresEventSuppression ? .defaultTap : .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
+            userInfo: Unmanaged.passUnretained(eventTapContext).toOpaque()
         )
 
         guard let tap else {
-            isRunning = localEventMonitor != nil || globalEventMonitor != nil
-            return isRunning
+            stop()
+            return false
         }
 
         eventTap = tap
@@ -124,6 +126,7 @@ final class GlobalGestureMonitor {
 
     func stop() {
         isRunning = false
+        eventTapContext.reset()
 
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
@@ -155,7 +158,7 @@ final class GlobalGestureMonitor {
     }
 
     private func installEventMonitors() {
-        let mask: NSEvent.EventTypeMask = [.flagsChanged, .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .keyDown]
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel, .keyDown]
 
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             guard let snapshot = GlobalGestureSnapshot(event: event) else {
@@ -180,7 +183,7 @@ final class GlobalGestureMonitor {
         }
     }
 
-    private func handle(_ snapshot: GlobalGestureSnapshot) {
+    fileprivate func handle(_ snapshot: GlobalGestureSnapshot) {
         if snapshot.type == .tapDisabledByTimeout || snapshot.type == .tapDisabledByUserInput {
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
@@ -242,6 +245,10 @@ final class GlobalGestureMonitor {
             let end = snapshot.point
             stop()
             emit(.areaFinished(start: areaDragStart, end: end))
+        case .scrollWheel:
+            guard capturesNextPlainClick || snapshot.commandDown || commandDown else { return }
+            guard let scrollDelta = snapshot.scrollDelta, scrollDelta != .zero else { return }
+            emit(.resize(point: snapshot.point, deltaX: scrollDelta.dx, deltaY: scrollDelta.dy, axis: snapshot.resizeAxis))
         case .keyDown:
             if snapshot.keyCode == 53, capturesNextPlainClick || capturesNextAreaDrag || commandDown {
                 stop()
@@ -275,18 +282,225 @@ final class GlobalGestureMonitor {
     }
 }
 
+struct GestureExclusionZone: Equatable, Sendable {
+    let frame: CGRect
+    let screenFrame: CGRect?
+    let hitSlop: CGFloat
+
+    init(frame: CGRect, screenFrame: CGRect?, hitSlop: CGFloat = 8) {
+        self.frame = frame
+        self.screenFrame = screenFrame
+        self.hitSlop = hitSlop
+    }
+
+    func contains(_ point: CGPoint) -> Bool {
+        let expandedFrame = frame.insetBy(dx: -hitSlop, dy: -hitSlop)
+        if expandedFrame.contains(point) {
+            return true
+        }
+
+        guard let screenFrame else {
+            return false
+        }
+
+        let flippedPoint = CGPoint(
+            x: point.x,
+            y: screenFrame.maxY - (point.y - screenFrame.minY)
+        )
+        return expandedFrame.contains(flippedPoint)
+    }
+}
+
+final class EventTapSuppressionState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturesPlainClick = false
+    private var capturesAreaDrag = false
+    private var areaDragActive = false
+    private var suppressMouseUpAfterPlainClick = false
+    private var excludedZones: [GestureExclusionZone] = []
+
+    func configure(capturesPlainClick: Bool, capturesAreaDrag: Bool, excludedZones: [GestureExclusionZone]) {
+        lock.lock()
+        self.capturesPlainClick = capturesPlainClick
+        self.capturesAreaDrag = capturesAreaDrag
+        self.excludedZones = excludedZones
+        areaDragActive = false
+        suppressMouseUpAfterPlainClick = false
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        capturesPlainClick = false
+        capturesAreaDrag = false
+        areaDragActive = false
+        suppressMouseUpAfterPlainClick = false
+        excludedZones = []
+        lock.unlock()
+    }
+
+    func shouldSuppress(type: CGEventType, point: CGPoint, commandDown: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if excludedZones.contains(where: { $0.contains(point) }) {
+            return false
+        }
+
+        switch type {
+        case .leftMouseDown:
+            if capturesAreaDrag && !commandDown {
+                areaDragActive = true
+                return true
+            }
+
+            if capturesPlainClick && !commandDown {
+                suppressMouseUpAfterPlainClick = true
+                return true
+            }
+
+            return false
+        case .leftMouseDragged:
+            return capturesAreaDrag && areaDragActive
+        case .leftMouseUp:
+            if capturesAreaDrag && areaDragActive {
+                areaDragActive = false
+                return true
+            }
+
+            if suppressMouseUpAfterPlainClick {
+                suppressMouseUpAfterPlainClick = false
+                return true
+            }
+
+            return false
+        case .scrollWheel:
+            return capturesPlainClick || capturesAreaDrag
+        default:
+            return false
+        }
+    }
+}
+
+private final class GestureEventTapContext: @unchecked Sendable {
+    weak var monitor: GlobalGestureMonitor?
+    private let suppressionState = EventTapSuppressionState()
+    private var resizeBindings = CaptureResizeBindings()
+
+    func configure(
+        capturesPlainClick: Bool,
+        capturesAreaDrag: Bool,
+        excludedZones: [GestureExclusionZone],
+        resizeBindings: CaptureResizeBindings
+    ) {
+        self.resizeBindings = resizeBindings
+        suppressionState.configure(
+            capturesPlainClick: capturesPlainClick,
+            capturesAreaDrag: capturesAreaDrag,
+            excludedZones: excludedZones
+        )
+    }
+
+    func reset() {
+        suppressionState.reset()
+    }
+
+    func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let snapshot = GlobalGestureSnapshot(
+            type: type,
+            point: event.location,
+            timestamp: TimeInterval(event.timestamp) / 1_000_000_000,
+            commandDown: event.flags.contains(.maskCommand),
+            activeResizeModifiers: Self.activeModifiers(for: event.flags),
+            resizeBindings: resizeBindings,
+            scrollDelta: Self.scrollDelta(for: event),
+            keyCode: type == .keyDown ? event.getIntegerValueField(.keyboardEventKeycode) : nil
+        )
+        let shouldSuppress = suppressionState.shouldSuppress(
+            type: type,
+            point: snapshot.point,
+            commandDown: snapshot.commandDown
+        )
+        let monitor = monitor
+
+        Task { @MainActor [weak monitor] in
+            monitor?.handle(snapshot)
+        }
+
+        return shouldSuppress ? nil : Unmanaged.passUnretained(event)
+    }
+
+    private static func scrollDelta(for event: CGEvent) -> CGVector? {
+        let deltaX = bestScrollDelta(
+            point: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2),
+            fixed: event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2),
+            line: event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+        )
+        let deltaY = bestScrollDelta(
+            point: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1),
+            fixed: event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1),
+            line: event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        )
+
+        guard deltaX != 0 || deltaY != 0 else { return nil }
+        return CGVector(dx: deltaX, dy: deltaY)
+    }
+
+    private static func bestScrollDelta(point: Double, fixed: Double, line: Int64) -> CGFloat {
+        if point != 0 {
+            return CGFloat(point)
+        }
+        if fixed != 0 {
+            return CGFloat(fixed)
+        }
+        return CGFloat(line)
+    }
+
+    private static func activeModifiers(for flags: CGEventFlags) -> Set<CaptureResizeModifier> {
+        var modifiers: Set<CaptureResizeModifier> = []
+        if flags.contains(.maskShift) {
+            modifiers.insert(.shift)
+        }
+        if flags.contains(.maskAlternate) {
+            modifiers.insert(.option)
+        }
+        if flags.contains(.maskControl) {
+            modifiers.insert(.control)
+        }
+        if flags.contains(.maskCommand) {
+            modifiers.insert(.command)
+        }
+        return modifiers
+    }
+}
+
 private struct GlobalGestureSnapshot: Sendable {
     let type: CGEventType
     let point: CGPoint
     let timestamp: TimeInterval
     let commandDown: Bool
+    let activeResizeModifiers: Set<CaptureResizeModifier>
+    let resizeBindings: CaptureResizeBindings
+    let scrollDelta: CGVector?
     let keyCode: Int64?
 
-    init(type: CGEventType, point: CGPoint, timestamp: TimeInterval, commandDown: Bool, keyCode: Int64? = nil) {
+    init(
+        type: CGEventType,
+        point: CGPoint,
+        timestamp: TimeInterval,
+        commandDown: Bool,
+        activeResizeModifiers: Set<CaptureResizeModifier> = [],
+        resizeBindings: CaptureResizeBindings = CaptureResizeBindings(),
+        scrollDelta: CGVector? = nil,
+        keyCode: Int64? = nil
+    ) {
         self.type = type
         self.point = point
         self.timestamp = timestamp
         self.commandDown = commandDown
+        self.activeResizeModifiers = activeResizeModifiers
+        self.resizeBindings = resizeBindings
+        self.scrollDelta = scrollDelta
         self.keyCode = keyCode
     }
 
@@ -304,6 +518,8 @@ private struct GlobalGestureSnapshot: Sendable {
             mappedType = .leftMouseDragged
         case .leftMouseUp:
             mappedType = .leftMouseUp
+        case .scrollWheel:
+            mappedType = .scrollWheel
         case .keyDown:
             mappedType = .keyDown
         default:
@@ -314,6 +530,32 @@ private struct GlobalGestureSnapshot: Sendable {
         point = event.cgEvent?.location ?? NSEvent.mouseLocation
         timestamp = event.timestamp
         commandDown = event.modifierFlags.contains(.command)
+        activeResizeModifiers = Self.activeModifiers(for: event.modifierFlags)
+        resizeBindings = CaptureResizeBindings()
+        scrollDelta = event.type == .scrollWheel
+            ? CGVector(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+            : nil
         keyCode = event.type == .keyDown ? Int64(event.keyCode) : nil
+    }
+
+    var resizeAxis: CaptureResizeAxis {
+        resizeBindings.axis(for: activeResizeModifiers)
+    }
+
+    private static func activeModifiers(for flags: NSEvent.ModifierFlags) -> Set<CaptureResizeModifier> {
+        var modifiers: Set<CaptureResizeModifier> = []
+        if flags.contains(.shift) {
+            modifiers.insert(.shift)
+        }
+        if flags.contains(.option) {
+            modifiers.insert(.option)
+        }
+        if flags.contains(.control) {
+            modifiers.insert(.control)
+        }
+        if flags.contains(.command) {
+            modifiers.insert(.command)
+        }
+        return modifiers
     }
 }

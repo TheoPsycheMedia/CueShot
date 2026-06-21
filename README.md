@@ -1,6 +1,6 @@
 # CueShot
 
-CueShot is a tiny macOS capture utility for people working with Codex. Click the menu bar icon, reveal the floating capture control, arm the next click or drag, and drop the resulting PNG into Codex or your clipboard.
+CueShot is a precise macOS capture utility for people working with Codex. Click the menu bar icon, reveal the floating capture control, arm the next click or drag, and CueShot copies a clean PNG to your clipboard with a preview ready to paste, drag, or reveal.
 
 <p align="center">
   <a href="docs/media/cueshot-promo-demo.mp4">
@@ -19,7 +19,7 @@ CueShot is a tiny macOS capture utility for people working with Codex. Click the
 - Captures UI elements, windows, manual areas, selections, or full screens.
 - Uses Accessibility metadata for exact element and window bounds when the target app exposes them.
 - Keeps activation deliberate: menu bar icon, floating control, Arm, then click or drag.
-- Saves PNG history locally and falls back to clipboard copy when direct Codex handoff is unavailable.
+- Saves PNG history locally, keeps the PNG on the clipboard, and shows a floating preview of the latest capture.
 - Shows permission, destination, and recent capture state so the app is not silently listening in the background.
 
 ## Current Build
@@ -35,7 +35,9 @@ This repository contains a native SwiftUI macOS MVP:
 - Accessibility hit testing for exact Element and Window metadata.
 - Area mode for manual drag rectangles and Selection mode for estimated click crops.
 - ScreenCaptureKit still-image capture with PNG encoding.
-- Clipboard PNG fallback and Codex auto-paste only when Codex is already frontmost.
+- Clipboard PNG/file URL handoff by default: capture, preview, switch to Codex, then press Cmd+V or drag the PNG.
+- Upgrade-safe clipboard-first behavior: older builds that had automatic Codex handoff enabled are migrated back to clipboard-first once; users can re-enable App Server from Advanced settings if they explicitly want to test it.
+- Optional experimental Codex App Server handoff. CueShot reports App Server acceptance separately from visible Codex desktop delivery.
 - First-run onboarding, Settings, capture history, Save As, reveal history, clear history, and diagnostics logging.
 
 Framer Motion is a React/web animation library, so it is not used as a runtime dependency inside the native app. CueShot mirrors that interaction style with native SwiftUI motion primitives.
@@ -44,8 +46,9 @@ Framer Motion is a React/web animation library, so it is not used as a runtime d
 
 - macOS 14 or newer.
 - Xcode command line tools with Swift 6 support.
-- Accessibility permission for element/window targeting and local paste automation.
+- Accessibility permission for element/window targeting and local event automation.
 - Screen Recording permission for visible pixel capture.
+- Codex App Server is optional and advanced. It requires the Codex CLI; CueShot checks `/opt/homebrew/bin/codex`, `/usr/local/bin/codex`, `~/.local/bin/codex`, then `PATH`; Settings also supports a manual CLI path override. Clipboard and drag/drop remain the primary workflow.
 
 ## Run Locally
 
@@ -79,8 +82,22 @@ Set `CUESHOT_VERSION=0.1.0` to control the generated `dist/CueShot-0.1.0.dmg` fi
 
 CueShot needs macOS Privacy grants for the app bundle:
 
-- Accessibility: one-shot capture activation, Accessibility target bounds, and local paste automation.
+- Accessibility: one-shot capture activation, Accessibility target bounds, and local event automation.
 - Screen Recording: visible pixel capture.
+- Codex App Server: optional experimental handoff into a new App Server-backed thread. If the Codex CLI is unavailable, App Server rejects the turn, or the visible Codex desktop window does not show the new thread, CueShot still keeps the PNG copied, previewed, and saved for Cmd+V or drag/drop.
+
+## Codex Flow
+
+1. Arm CueShot from the floating capture control.
+2. Click an element, selection, window, screen, or drag a manual area.
+3. Confirm the floating preview says `Copied to Clipboard`.
+4. Switch to Codex and press Cmd+V, drag the preview into Codex, or reveal the PNG in Finder.
+
+## Advanced App Server Truth
+
+CueShot does not synthesize Cmd+V into Codex. The optional App Server path starts `codex app-server --listen stdio://`, initializes the connection, starts a thread, and sends a `turn/start` request containing text plus a `localImage` path. A successful response means App Server accepted the image-bearing turn; it does not guarantee the currently visible Codex desktop composer received the PNG. Settings includes a live App Server handoff test, the resolved CLI path, and step diagnostics for launch, initialize, thread, turn, and stderr.
+
+After granting permissions, quit and reopen CueShot if capture still fails. macOS permissions can apply to a specific app bundle path, so the built app and installed app may need separate approval.
 
 Open the relevant macOS panes:
 

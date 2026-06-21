@@ -10,7 +10,7 @@ Visual: App icon, CueShot wordmark, reticle pulse, compact headline.
 
 Voiceover: "Meet CueShot: a tiny macOS capture tool built for Codex."
 
-On-screen copy: "Point at the UI detail. Drop it into Codex."
+On-screen copy: "Point at the UI detail. Copy the exact PNG."
 
 ## Scene 2: The Activation Loop
 
@@ -46,11 +46,11 @@ On-screen copy: "Capture the exact control."
 
 Time: 22.2-29.4
 
-Visual: Coded output inspector, last capture chip, Save As / Copy PNG / Codex destination highlights.
+Visual: Coded floating preview under the capture control, last capture thumbnail, Copy / Reveal / Open CueShot actions.
 
-Voiceover: "CueShot saves a PNG locally, sends to Codex when available, and falls back to the clipboard."
+Voiceover: "CueShot saves a local PNG, copies it instantly, and shows a preview you can paste or drag into Codex."
 
-On-screen copy: "Local PNG. Codex handoff. Clipboard fallback."
+On-screen copy: "Local PNG. Clipboard preview. Paste or drag."
 
 ## Scene 6: GitHub Close
 

@@ -5,7 +5,8 @@ MODE="${1:-run}"
 APP_NAME="CueShot"
 BUNDLE_ID="com.edgariraheta.CueShot"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="${CUESHOT_VERSION:-0.1.0}"
+VERSION="${CUESHOT_VERSION:-0.1.6}"
+BUILD_CONFIGURATION="${CUESHOT_BUILD_CONFIGURATION:-release}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -47,8 +48,8 @@ sign_bundle() {
 build_app() {
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-  swift build
-  BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+  swift build -c "$BUILD_CONFIGURATION"
+  BUILD_BINARY="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)/$APP_NAME"
 
   rm -rf "$APP_BUNDLE"
   mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -71,6 +72,10 @@ build_app() {
   <string>AppIcon</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$VERSION</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>
@@ -82,7 +87,7 @@ build_app() {
   <key>NSScreenCaptureUsageDescription</key>
   <string>CueShot needs Screen Recording to capture the UI element you clicked. Captures stay on this Mac.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>CueShot uses local paste automation only to place captured PNGs into Codex when you ask it to.</string>
+  <string>CueShot can reveal saved captures in Finder and keeps Codex App Server handoff optional.</string>
 </dict>
 </plist>
 PLIST
@@ -174,6 +179,7 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
+    BUILD_CONFIGURATION="debug"
     build_app
     lldb -- "$APP_BINARY"
     ;;
