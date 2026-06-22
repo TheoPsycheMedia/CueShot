@@ -27,7 +27,7 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var handoffStatusSummary = "No handoff run yet"
-    @Published var appServerDiagnosticSummary = "No App Server diagnostic run yet"
+    @Published var appServerDiagnosticSummary = "No visible-composer paste diagnostic run yet"
     @Published var codexCLIPathOverride = "" {
         didSet {
             userDefaults.set(codexCLIPathOverride, forKey: PreferenceKey.codexCLIPathOverride)
@@ -211,17 +211,17 @@ final class AppModel: ObservableObject {
         case .copyLastPNG:
             copyLastCapture()
         case .selectElementMode:
-            selectModeAndRevealControl(.element)
+            selectModeAndArmCapture(.element)
         case .selectSelectionMode:
-            selectModeAndRevealControl(.selection)
+            selectModeAndArmCapture(.selection)
         case .selectWindowMode:
-            selectModeAndRevealControl(.window)
+            selectModeAndArmCapture(.window)
         case .selectAreaMode:
-            selectModeAndRevealControl(.area)
+            selectModeAndArmCapture(.area)
         case .selectScreenMode:
-            selectModeAndRevealControl(.screen)
+            selectModeAndArmCapture(.screen)
         case .selectOCRMode:
-            selectModeAndRevealControl(.ocr)
+            selectModeAndArmCapture(.ocr)
         case .openSettings:
             openSettings()
         case .showOnboarding:
@@ -247,11 +247,11 @@ final class AppModel: ObservableObject {
     }
 
     var destinationSummary: String {
-        autoPasteToCodex ? "Copy PNG, then try experimental App Server" : "Copy PNG to Clipboard"
+        autoPasteToCodex ? "Copy PNG, then try visible paste to Codex" : "Copy PNG to Clipboard"
     }
 
     var destinationFallbackSummary: String {
-        autoPasteToCodex ? "Advanced: CueShot still copies the PNG first, then tries Codex App Server. The visible Codex composer may still need Cmd+V or drag/drop." : "Every capture copies a clean PNG and file URL. Press Cmd+V in Codex, drag the preview, or reveal the PNG."
+        autoPasteToCodex ? "Advanced: CueShot copies the PNG first, focuses Codex, then triggers Edit > Paste. If Codex blocks it, the PNG is still ready to paste or drag." : "Every capture copies a clean PNG and file URL. Press Cmd+V in Codex, drag the preview, or reveal the PNG."
     }
 
     var permissionDiagnosticSummary: String {
@@ -259,7 +259,7 @@ final class AppModel: ObservableObject {
         let bundlePath = Bundle.main.bundleURL.path
         let codex = handoffService.runningCodexDescription() ?? "Codex is not currently running"
         let cli = CodexAppServerClient.resolveCLIPath(override: codexCLIPathOverride).displayDescription
-        return "CueShot: \(bundleID) at \(bundlePath) · AX: \(permissions.accessibilityGranted ? "granted" : "missing") · Screen: \(permissions.screenRecordingGranted ? "granted" : "missing") · Codex app: \(codex) · Codex CLI: \(cli)"
+        return "CueShot: \(bundleID) at \(bundlePath) · AX: \(permissions.accessibilityGranted ? "granted" : "missing") · Screen: \(permissions.screenRecordingGranted ? "granted" : "missing") · Automation: \(permissions.automationStatus.diagnosticTitle) · Codex app: \(codex) · Codex CLI: \(cli)"
     }
 
     var codexCLIResolutionSummary: String {
@@ -310,6 +310,7 @@ final class AppModel: ObservableObject {
 
     func selectMode(_ mode: CaptureMode) {
         let wasArmed = oneClickCaptureArmed
+        resetTargetAdjustment()
         if wasArmed {
             gestureMonitor.stop()
             gestureMonitorRunning = false
@@ -317,7 +318,6 @@ final class AppModel: ObservableObject {
             overlayController.hide()
             currentTarget = nil
             resetHoverCache()
-            resetTargetAdjustment()
         }
 
         withAnimation(MotionSpec.navigationSpring) {
@@ -328,6 +328,11 @@ final class AppModel: ObservableObject {
         if wasArmed {
             diagnostics.record("capture.mode changedWhileArmed mode=\(mode.rawValue)")
         }
+    }
+
+    func selectModeAndArmCapture(_ mode: CaptureMode) {
+        selectMode(mode)
+        armCaptureFromFloatingControl()
     }
 
     func cycleTheme() {
@@ -454,14 +459,14 @@ final class AppModel: ObservableObject {
     }
 
     func testCodexHandoff() {
-        handoffStatusSummary = "Running App Server handoff test..."
-        appServerDiagnosticSummary = "Starting Codex App Server..."
+        handoffStatusSummary = "Running visible-composer paste test..."
+        appServerDiagnosticSummary = "Copying a test PNG, focusing Codex, then triggering Paste..."
         lastErrorMessage = nil
 
         Task {
             let testImage = makeHandoffTestImage()
             guard let testURL = writeHandoffTestImage(testImage) else {
-                let message = "Could not create a saved PNG for Codex App Server test."
+                let message = "Could not create a saved PNG for the visible-composer paste test."
                 handoffStatusSummary = message
                 appServerDiagnosticSummary = message
                 captureState = .failed(reason: message)
@@ -476,7 +481,9 @@ final class AppModel: ObservableObject {
                 codexCLIPathOverride: codexCLIPathOverride
             )
             handoffStatusSummary = report.summary
-            appServerDiagnosticSummary = report.appServerDiagnostics?.summary ?? "No App Server diagnostics were returned."
+            appServerDiagnosticSummary = report.pasteShortcutPosted
+                ? "Visible-composer paste command posted after clipboard copy."
+                : "Visible-composer paste did not post. \(report.note)"
             diagnostics.record("handoff.test result=\(report.result) note=\(report.note)")
 
             withAnimation(MotionSpec.captureSpring) {
@@ -486,9 +493,9 @@ final class AppModel: ObservableObject {
             if report.result.isAppServerAccepted {
                 lastErrorMessage = nil
             } else if report.result.didAttemptPaste {
-                lastErrorMessage = "App Server test: paste attempted, but attachment receipt is not verified."
+                lastErrorMessage = "Visible-composer paste test: paste attempted, but attachment receipt is not verified."
             } else {
-                lastErrorMessage = "App Server test: \(report.note)"
+                lastErrorMessage = "Visible-composer paste test: \(report.note)"
             }
         }
     }
@@ -751,6 +758,7 @@ final class AppModel: ObservableObject {
 
     func openPermissionSettings(_ kind: PermissionKind) {
         permissionService.openSettings(for: kind)
+        refreshPermissions()
     }
 
     func dismissCaptureStatus() {
@@ -785,15 +793,32 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            if let precisionSelectionState {
+            if let existingPrecisionState = precisionSelectionState {
+                var baseTarget = existingPrecisionState.baseTarget
+                var resolvedHover = false
+                if shouldResolveHoverTarget(at: point) {
+                    let candidate = timedTarget(at: point, reason: "hover")
+                    guard !shouldBlockOwnAppTarget(candidate) else {
+                        currentTarget = nil
+                        lastHoverTarget = nil
+                        overlayController.hide()
+                        return
+                    }
+                    baseTarget = candidate
+                    resolvedHover = true
+                }
+                let movedState = existingPrecisionState.moving(to: point, baseTarget: baseTarget)
                 let target = CaptureRectAdjuster.targetWithAdjustedRect(
-                    precisionSelectionState.baseTarget,
-                    centeredAt: precisionSelectionState.anchorPoint,
-                    size: precisionSelectionState.adjustedSize
+                    movedState.baseTarget,
+                    centeredAt: movedState.anchorPoint,
+                    size: movedState.adjustedSize
                 )
+                precisionSelectionState = movedState
                 lastHoverTarget = target
-                lastHoverPoint = point
-                lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
+                if resolvedHover {
+                    lastHoverPoint = point
+                    lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
+                }
                 currentTarget = target
                 withAnimation(MotionSpec.navigationSpring) {
                     captureState = .armed
@@ -829,7 +854,7 @@ final class AppModel: ObservableObject {
             guard selectedMode != .area, oneClickCaptureArmed else { return }
             guard !capturePuckController.containsScreenPoint(point) else { return }
 
-            let baseTarget = currentTarget ?? lastHoverTarget ?? timedTarget(at: point, reason: "resize")
+            let baseTarget = precisionSelectionState?.baseTarget ?? currentTarget ?? lastHoverTarget ?? timedTarget(at: point, reason: "resize")
             guard !shouldBlockOwnAppTarget(baseTarget) else {
                 currentTarget = nil
                 lastHoverTarget = nil
@@ -837,12 +862,12 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            let lockedState = precisionSelectionState ?? PrecisionSelectionState(
+            let lockedState = (precisionSelectionState ?? PrecisionSelectionState(
                 baseTarget: baseTarget,
-                anchorPoint: baseTarget.point,
+                anchorPoint: point,
                 adjustedSize: baseTarget.rect.size,
                 activeAxis: axis
-            )
+            )).moving(to: point, baseTarget: baseTarget)
             let adjustedSize = CaptureRectAdjuster.adjustedSize(
                 from: lockedState.adjustedSize,
                 deltaX: deltaX,
@@ -993,8 +1018,12 @@ final class AppModel: ObservableObject {
                 try? historyStore.update(finalRecord)
                 insertCapture(finalRecord)
                 handoffStatusSummary = handoff.summary
-                if let appServerDiagnostics = handoff.appServerDiagnostics {
+                if handoff.pasteShortcutPosted {
+                    appServerDiagnosticSummary = "Visible-composer paste command posted after clipboard copy."
+                } else if let appServerDiagnostics = handoff.appServerDiagnostics {
                     appServerDiagnosticSummary = appServerDiagnostics.summary
+                } else {
+                    appServerDiagnosticSummary = handoff.note
                 }
                 diagnostics.record("capture.handoff result=\(handoff.result) note=\(handoff.note) codex=\(handoff.codexDescription ?? "none")")
                 withAnimation(MotionSpec.captureSpring) {
@@ -1004,9 +1033,9 @@ final class AppModel: ObservableObject {
                 if handoff.result.isAppServerAccepted {
                     lastErrorMessage = nil
                 } else if handoff.result.didAttemptPaste {
-                    lastErrorMessage = autoPasteToCodex ? "App Server handoff: paste attempted, but attachment receipt is not verified." : nil
+                    lastErrorMessage = autoPasteToCodex ? "Visible-composer paste handoff: paste attempted, but attachment receipt is not verified." : nil
                 } else if autoPasteToCodex {
-                    lastErrorMessage = "App Server handoff: \(handoff.note)"
+                    lastErrorMessage = "Visible-composer paste handoff: \(handoff.note)"
                 } else {
                     lastErrorMessage = nil
                 }
@@ -1058,11 +1087,12 @@ final class AppModel: ObservableObject {
             return .copied(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         case .pasteAttempted, .sentVerified:
             return .pasteAttempted
-        case .clipboardWriteFailed,
-             .codexUnavailable,
+        case .codexUnavailable,
              .codexFocusFailed,
              .codexPasteTargetUnavailable,
              .pasteEventBlocked:
+            return .copied(reason: report.note)
+        case .clipboardWriteFailed:
             return .failed(reason: report.note)
         }
     }
@@ -1118,11 +1148,6 @@ final class AppModel: ObservableObject {
 
     private func resetTargetAdjustment() {
         precisionSelectionState = nil
-    }
-
-    private func selectModeAndRevealControl(_ mode: CaptureMode) {
-        selectMode(mode)
-        showCapturePuck()
     }
 
     private static func loadCommandShortcuts(from userDefaults: UserDefaults) -> [CueShotCommand: CueShotShortcut] {
@@ -1355,7 +1380,12 @@ enum CaptureState: Equatable {
         case .pasteAttempted: "Paste Attempted"
         case .codexAppServerAccepted: "App Server Accepted"
         case .copied: "Copied"
-        case .permissionNeeded(let kind): kind == .accessibility ? "Needs AX" : "Needs Screen"
+        case .permissionNeeded(let kind):
+            switch kind {
+            case .accessibility: "Needs AX"
+            case .screenRecording: "Needs Screen"
+            case .automation: "Needs Automation"
+            }
         case .codexNotFocused: "Codex Not Focused"
         case .failed: "Failed"
         }
@@ -1395,11 +1425,13 @@ enum CaptureControlPresentation: Equatable {
 enum PermissionKind: Equatable {
     case accessibility
     case screenRecording
+    case automation
 
     var title: String {
         switch self {
         case .accessibility: "Accessibility"
         case .screenRecording: "Screen Recording"
+        case .automation: "Automation"
         }
     }
 
@@ -1407,6 +1439,45 @@ enum PermissionKind: Equatable {
         switch self {
         case .accessibility: "CueShot needs Accessibility for the capture listener and exact element bounds."
         case .screenRecording: "CueShot needs Screen Recording to capture visible pixels."
+        case .automation: "CueShot needs Automation to ask System Events to focus Codex and trigger Edit > Paste."
+        }
+    }
+}
+
+enum AutomationPermissionStatus: Equatable {
+    case granted
+    case denied
+    case notDetermined
+    case unknown
+
+    var isGranted: Bool {
+        self == .granted
+    }
+
+    var displayTitle: String {
+        switch self {
+        case .granted: "Granted"
+        case .denied: "Denied"
+        case .notDetermined: "Not requested"
+        case .unknown: "Unknown"
+        }
+    }
+
+    var diagnosticTitle: String {
+        switch self {
+        case .granted: "granted"
+        case .denied: "denied"
+        case .notDetermined: "not requested"
+        case .unknown: "unknown"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .granted: "System Events allowed"
+        case .denied: "System Events denied"
+        case .notDetermined: "Prompts on first paste test"
+        case .unknown: "Check System Settings"
         }
     }
 }
@@ -1414,8 +1485,13 @@ enum PermissionKind: Equatable {
 struct PermissionStatus: Equatable {
     var accessibilityGranted: Bool
     var screenRecordingGranted: Bool
+    var automationStatus: AutomationPermissionStatus
 
-    static let mockGranted = PermissionStatus(accessibilityGranted: true, screenRecordingGranted: true)
+    var automationGranted: Bool {
+        automationStatus.isGranted
+    }
+
+    static let mockGranted = PermissionStatus(accessibilityGranted: true, screenRecordingGranted: true, automationStatus: .granted)
 }
 
 enum HandoffResult: Equatable {

@@ -161,6 +161,11 @@ private struct OnboardingPermissionRow: View {
                     granted: model.permissions.accessibilityGranted,
                     action: { model.openPermissionSettings(.accessibility) }
                 )
+                PermissionSetupLine(
+                    title: "Automation",
+                    granted: model.permissions.automationGranted,
+                    action: { model.openPermissionSettings(.automation) }
+                )
             }
         }
     }

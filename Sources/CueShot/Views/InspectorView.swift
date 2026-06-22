@@ -42,6 +42,14 @@ struct InspectorView: View {
                         ) {
                             model.openPermissionSettings(.screenRecording)
                         }
+                        PermissionRow(
+                            title: "Visible paste",
+                            detail: "Automation: \(model.permissions.automationStatus.detail)",
+                            granted: model.permissions.automationGranted,
+                            required: false
+                        ) {
+                            model.openPermissionSettings(.automation)
+                        }
                     }
                 }
 
@@ -107,11 +115,11 @@ struct InspectorView: View {
                 InspectorSection(title: "Advanced") {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(isOn: $model.autoPasteToCodex) {
-                            Label("Try App Server after copying", systemImage: "sparkles")
+                            Label("Try visible paste after copying", systemImage: "keyboard")
                         }
                         .toggleStyle(.switch)
 
-                        Text("Experimental. Clipboard and drag remain the reliable handoff.")
+                        Text("Copies first, then focuses Codex and triggers Edit > Paste through macOS Automation. Clipboard and drag remain available.")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

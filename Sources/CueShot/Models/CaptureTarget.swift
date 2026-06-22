@@ -98,6 +98,15 @@ struct PrecisionSelectionState: Equatable {
     let adjustedSize: CGSize
     let activeAxis: CaptureResizeAxis
 
+    func moving(to point: CGPoint, baseTarget: CaptureTarget) -> PrecisionSelectionState {
+        PrecisionSelectionState(
+            baseTarget: baseTarget,
+            anchorPoint: point,
+            adjustedSize: adjustedSize,
+            activeAxis: activeAxis
+        )
+    }
+
     func updating(size: CGSize, axis: CaptureResizeAxis) -> PrecisionSelectionState {
         PrecisionSelectionState(
             baseTarget: baseTarget,

@@ -63,9 +63,15 @@ struct AXHitTestService {
         let screenFrame = displayFrame(containing: point)
         let rawBounds = bounds(for: resolvedElement)
         let fallbackBounds = fallbackWindowBounds(for: resolvedElement)
-        let rect = captureRect(for: rawBounds ?? fallbackBounds ?? estimatedRect(around: point), screenFrame: screenFrame)
+        let resolvedBounds = rawBounds ?? fallbackBounds ?? estimatedRect(around: point)
         let app = runningApplication(for: resolvedElement)
-        let confidence = elementConfidence(rawBounds: rawBounds, fallbackBounds: fallbackBounds, role: role, rect: rect, screenFrame: screenFrame)
+        let confidence = elementConfidence(rawBounds: rawBounds, fallbackBounds: fallbackBounds, role: role, rect: resolvedBounds, screenFrame: screenFrame)
+        let rect = elementCaptureRect(
+            for: resolvedBounds,
+            confidence: confidence,
+            point: point,
+            screenFrame: screenFrame
+        )
 
         return CaptureTarget(
             point: point,
@@ -230,6 +236,23 @@ struct AXHitTestService {
         }
 
         return clamped
+    }
+
+    private func elementCaptureRect(
+        for rect: CGRect,
+        confidence: TargetConfidence,
+        point: CGPoint,
+        screenFrame: CGRect
+    ) -> CGRect {
+        let capturedRect = captureRect(for: rect, screenFrame: screenFrame)
+        switch confidence {
+        case .adjusted:
+            return captureRect(for: estimatedRect(around: point), screenFrame: screenFrame)
+        case .windowFallback where isCoarseContainer(role: "AXWindow", rect: capturedRect, screenFrame: screenFrame):
+            return captureRect(for: estimatedRect(around: point), screenFrame: screenFrame)
+        default:
+            return capturedRect
+        }
     }
 
     private func elementConfidence(rawBounds: CGRect?, fallbackBounds: CGRect?, role: String, rect: CGRect, screenFrame: CGRect) -> TargetConfidence {

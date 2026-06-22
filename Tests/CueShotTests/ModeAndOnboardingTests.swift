@@ -162,6 +162,45 @@ final class ModeAndOnboardingTests: XCTestCase {
         XCTAssertEqual(preview.rect.height, 100, accuracy: 1)
     }
 
+    func testPrecisionSelectionStateMovesWithoutResettingAdjustedSize() {
+        let target = CaptureTarget(
+            point: CGPoint(x: 300, y: 200),
+            screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            rect: CGRect(x: 220, y: 150, width: 160, height: 100),
+            sourceAppName: "CueShotTests",
+            sourceBundleID: nil,
+            axRole: "Estimated",
+            axSubrole: nil,
+            axTitle: nil,
+            confidence: .estimated
+        )
+        let state = PrecisionSelectionState(
+            baseTarget: target,
+            anchorPoint: target.point,
+            adjustedSize: CGSize(width: 220, height: 100),
+            activeAxis: .width
+        )
+        let nextBaseTarget = CaptureTarget(
+            point: CGPoint(x: 420, y: 260),
+            screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            rect: CGRect(x: 370, y: 220, width: 100, height: 80),
+            sourceAppName: "NextTarget",
+            sourceBundleID: nil,
+            axRole: "Estimated",
+            axSubrole: nil,
+            axTitle: nil,
+            confidence: .estimated
+        )
+
+        let moved = state.moving(to: CGPoint(x: 420, y: 260), baseTarget: nextBaseTarget)
+
+        XCTAssertEqual(moved.anchorPoint.x, 420, accuracy: 0.1)
+        XCTAssertEqual(moved.anchorPoint.y, 260, accuracy: 0.1)
+        XCTAssertEqual(moved.adjustedSize.width, 220, accuracy: 0.1)
+        XCTAssertEqual(moved.adjustedSize.height, 100, accuracy: 0.1)
+        XCTAssertEqual(moved.baseTarget.sourceAppName, "NextTarget")
+    }
+
     func testScrollResizeClampsAdjustedRectangleToScreen() {
         let screenFrame = CGRect(x: 0, y: 0, width: 320, height: 240)
         let target = CaptureTarget(
@@ -280,6 +319,22 @@ final class ModeAndOnboardingTests: XCTestCase {
         XCTAssertEqual(CueShotShortcut.unassigned.displayText, "Unassigned")
     }
 
+    func testAutomationPermissionHasExplicitStatusText() {
+        XCTAssertEqual(AutomationPermissionStatus.granted.displayTitle, "Granted")
+        XCTAssertEqual(AutomationPermissionStatus.denied.detail, "System Events denied")
+        XCTAssertEqual(AutomationPermissionStatus.notDetermined.diagnosticTitle, "not requested")
+        XCTAssertFalse(AutomationPermissionStatus.unknown.isGranted)
+    }
+
+    func testAutomationPermissionStateDoesNotReuseScreenLanguage() {
+        let state = CaptureState.permissionNeeded(.automation)
+
+        XCTAssertEqual(state.label, "Needs Automation")
+        XCTAssertTrue(state.detail.contains("System Events"))
+        XCTAssertTrue(state.detail.contains("Edit > Paste"))
+        XCTAssertFalse(state.detail.contains("Screen Recording"))
+    }
+
     @MainActor
     func testAutoHandoffDefaultsToClipboardOnly() {
         let suiteName = "CueShotTests-\(UUID().uuidString)"
@@ -312,7 +367,7 @@ final class ModeAndOnboardingTests: XCTestCase {
     }
 
     @MainActor
-    func testAdvancedAppServerPreferenceCanPersistAfterMigration() {
+    func testLegacyPastePreferenceCanPersistAfterMigration() {
         let suiteName = "CueShotTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer {
@@ -324,7 +379,8 @@ final class ModeAndOnboardingTests: XCTestCase {
         let model = AppModel(userDefaults: defaults)
 
         XCTAssertTrue(model.autoPasteToCodex)
-        XCTAssertTrue(model.destinationSummary.contains("experimental App Server"))
+        XCTAssertTrue(model.destinationSummary.contains("visible paste"))
+        XCTAssertTrue(model.destinationFallbackSummary.contains("Edit > Paste"))
     }
 
     @MainActor

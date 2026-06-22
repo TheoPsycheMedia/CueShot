@@ -24,8 +24,8 @@ This avoids the feeling that the app is silently watching the screen.
 - `AXHitTestService`: Accessibility hit testing for exact element and window bounds.
 - `CaptureService`: capture planning, ScreenCaptureKit image capture, and PNG encoding.
 - `CaptureHistoryStore`: local history records and filesystem storage.
-- `CodexAppServerClient`: JSON-RPC client for `codex app-server` local-image turns.
-- `CodexHandoffService`: clipboard-first handoff reporting, with optional experimental Codex App Server image delivery.
+- `CodexAppServerClient`: JSON-RPC client for `codex app-server` local-image turns retained for diagnostics and future protocol work.
+- `CodexHandoffService`: clipboard-first handoff reporting, with optional legacy visible-composer Cmd+V delivery that focuses a likely Codex composer through Accessibility or clicks the visible lower composer area before pasting.
 - `PermissionService`: macOS Accessibility and Screen Recording status checks.
 - `DiagnosticsLogger`: local event log for troubleshooting.
 
@@ -35,20 +35,23 @@ Element and Window modes are exact when the target app exposes useful Accessibil
 
 ## Clipboard Handoff Model
 
-CueShot treats the clipboard, saved PNG history, and floating preview as the primary handoff. The default loop is capture -> preview confirms `Copied to Clipboard` -> user switches to Codex -> user presses Cmd+V or drags the saved PNG from the preview/Finder. This avoids synthetic paste events and does not claim that CueShot can control the visible Codex composer.
+CueShot treats the clipboard, saved PNG history, and floating preview as the primary handoff. The default loop is capture -> preview confirms `Copied to Clipboard` -> user switches to Codex -> user presses Cmd+V or drags the saved PNG from the preview/Finder. This default avoids synthetic paste events and does not claim that CueShot can control the visible Codex composer.
 
-Existing installs are migrated to this clipboard-first behavior once via `clipboardFirstMigrationVersion`. A previous `autoPasteToCodex=true` preference is treated as stale legacy behavior and reset to `false`; users who still want App Server can explicitly re-enable it from Advanced settings after migration.
+Existing installs are migrated to clipboard-first behavior once via `clipboardFirstMigrationVersion`. A previous `autoPasteToCodex=true` preference is treated as stale behavior and reset to `false`; users who still want the legacy Cmd+V visible-composer attempt can explicitly re-enable it from Advanced settings after migration.
 
-## Experimental App Server Model
+## Legacy Cmd+V Model
 
-Optional advanced Codex delivery uses `codex app-server --listen stdio://` over newline-delimited JSON-RPC-like stdio:
+Optional advanced Codex delivery uses the historical visible-composer paste path:
 
-1. `initialize` with CueShot client info and capabilities.
-2. `initialized` notification.
-3. `thread/start` with empty params; the live CLI returns `result.thread.id`.
-4. `turn/start` with `threadId` and `input` containing a text item plus a `localImage` item pointing to the saved PNG; the live CLI returns `result.turn.id`.
+1. Copy the PNG and saved file URL to `NSPasteboard`.
+2. Find the real running Codex desktop app.
+3. Activate Codex and wait for it to become frontmost.
+4. Query Codex's Accessibility tree for a likely composer text area or text field.
+5. If a likely candidate exists, set `AXFocused=true` on it.
+6. If the composer input is hidden inside a web view and no likely candidate is exposed, derive Codex's front window bounds and click the lower-center composer band.
+7. Wait briefly for focus to settle, then post synthetic Cmd+V using `CGEvent`.
 
-Live probing on Codex CLI `0.141.0` shows this creates an App Server-backed thread (`source: "vscode"`) and accepts the image-bearing turn. It does not prove that the currently visible Codex desktop composer receives the PNG. For that reason App Server remains advanced/experimental, and the default UI says `Copied to Clipboard` or `Ready to Drag`, not `Sent to visible Codex`, unless a future protocol provides a visible-thread targeting or reveal/open contract.
+If CueShot cannot focus a likely composer or compute a safe visible-composer click, it reports `Codex prompt not focused` and keeps the PNG copied. If it can focus or click the composer area and post the keyboard event, it reports `Paste attempted` rather than `Sent to visible Codex`, because macOS does not provide a reliable receipt that the visible composer attached the image.
 
 ## Privacy Model
 

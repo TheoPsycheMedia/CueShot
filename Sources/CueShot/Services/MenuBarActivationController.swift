@@ -123,7 +123,11 @@ private extension CaptureState {
     var menuBarLabel: String {
         switch self {
         case .permissionNeeded(let kind):
-            kind == .accessibility ? "Needs AX" : "Needs Screen"
+            switch kind {
+            case .accessibility: "Needs AX"
+            case .screenRecording: "Needs Screen"
+            case .automation: "Needs Automation"
+            }
         case .copied:
             "Copied"
         case .failed:

@@ -54,7 +54,7 @@ final class CapturePuckController {
         panel.hasShadow = true
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.setAccessibilityElement(true)
         panel.setAccessibilityRole(.window)
@@ -301,7 +301,7 @@ private struct PuckModePicker: View {
         HStack(spacing: 5) {
             ForEach(CaptureMode.allCases) { mode in
                 Button {
-                    model.selectMode(mode)
+                    model.selectModeAndArmCapture(mode)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: mode.symbol)
@@ -455,6 +455,12 @@ private struct PuckResultCard: View {
 
                     HStack(spacing: 7) {
                         Button {
+                            model.armCaptureFromFloatingControl()
+                        } label: {
+                            Label("New", systemImage: model.selectedMode.symbol)
+                                .frame(maxWidth: .infinity)
+                        }
+                        Button {
                             model.copyLastCapture()
                         } label: {
                             Label("Copy", systemImage: "doc.on.doc")
@@ -464,7 +470,7 @@ private struct PuckResultCard: View {
                             Button {
                                 model.copyOCRText(capture)
                             } label: {
-                                Label("Copy OCR", systemImage: "textformat")
+                                Label("OCR", systemImage: "textformat")
                                     .frame(maxWidth: .infinity)
                             }
                         }
@@ -478,35 +484,29 @@ private struct PuckResultCard: View {
                     }
                     .font(.system(size: 10, weight: .semibold))
                     .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .buttonStyle(PressableMotionStyle())
                 }
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Copied. \(capture.mode.title) capture, \(capture.dimensions), \(capture.fileSize). Press Command V in Codex or drag the thumbnail.")
+        .accessibilityLabel("Copied. \(capture.mode.title) capture, \(capture.dimensions), \(capture.fileSize). Choose New for another capture, press Command V in Codex, or drag the thumbnail.")
     }
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let image = model.selectedCaptureImage {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
+        if let image = model.selectedCaptureImage,
+           let url = model.selectedCaptureURL {
+            NativeDraggableCaptureThumbnail(image: image, fileURL: url)
                 .frame(width: 92, height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(.white.opacity(0.14), lineWidth: 1)
                 }
-                .onDrag {
-                    guard let url = model.selectedCaptureURL,
-                          let provider = NSItemProvider(contentsOf: url)
-                    else {
-                        return NSItemProvider(object: capture.sourceAppName as NSString)
-                    }
-                    return provider
-                }
-                .accessibilityHidden(true)
+                .accessibilityLabel("Drag PNG capture")
+                .accessibilityHint("Drag this thumbnail into Codex or another app.")
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(.white.opacity(0.08))
@@ -518,5 +518,86 @@ private struct PuckResultCard: View {
                 }
                 .accessibilityHidden(true)
         }
+    }
+}
+
+private struct NativeDraggableCaptureThumbnail: NSViewRepresentable {
+    let image: NSImage
+    let fileURL: URL
+
+    func makeNSView(context: Context) -> CaptureThumbnailDragImageView {
+        let view = CaptureThumbnailDragImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 12
+        view.layer?.masksToBounds = true
+        view.toolTip = "Drag PNG capture"
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.image)
+        view.setAccessibilityLabel("Drag PNG capture")
+        return view
+    }
+
+    func updateNSView(_ view: CaptureThumbnailDragImageView, context: Context) {
+        view.image = image
+        view.fileURL = fileURL
+    }
+}
+
+private final class CaptureThumbnailDragImageView: NSImageView, NSDraggingSource {
+    var fileURL: URL?
+    private var mouseDownEvent: NSEvent?
+    private var draggingSessionActive = false
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownEvent = event
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !draggingSessionActive,
+              let fileURL,
+              let pasteboardItem = CaptureDragPayload.makePasteboardItem(fileURL: fileURL),
+              let image
+        else {
+            return
+        }
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(bounds, contents: image)
+        draggingSessionActive = true
+        let session = beginDraggingSession(
+            with: [draggingItem],
+            event: mouseDownEvent ?? event,
+            source: self
+        )
+        session.animatesToStartingPositionsOnCancelOrFail = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        mouseDownEvent = nil
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        .copy
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        mouseDownEvent = nil
+        draggingSessionActive = false
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        true
     }
 }

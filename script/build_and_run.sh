@@ -87,7 +87,7 @@ build_app() {
   <key>NSScreenCaptureUsageDescription</key>
   <string>CueShot needs Screen Recording to capture the UI element you clicked. Captures stay on this Mac.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>CueShot can reveal saved captures in Finder and keeps Codex App Server handoff optional.</string>
+  <string>CueShot needs Automation to ask System Events to focus Codex and trigger Edit &gt; Paste after copying a screenshot.</string>
 </dict>
 </plist>
 PLIST
@@ -109,7 +109,8 @@ open_privacy_settings() {
   /usr/bin/open -n "$permission_app"
   /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" >/dev/null 2>&1 || true
   /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" >/dev/null 2>&1 || true
-  echo "Grant Accessibility and Screen Recording to: $permission_app"
+  /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" >/dev/null 2>&1 || true
+  echo "Grant Accessibility, Screen Recording, and Automation/System Events to: $permission_app"
 }
 
 install_app() {
@@ -162,6 +163,7 @@ print_tcc_status() {
   local system_db="/Library/Application Support/com.apple.TCC/TCC.db"
   local accessibility
   local screen
+  local automation
 
   accessibility="$(tcc_value_for "$system_db" "kTCCServiceAccessibility")"
   [[ -n "$accessibility" ]] || accessibility="$(tcc_value_for "$user_db" "kTCCServiceAccessibility")"
@@ -169,8 +171,12 @@ print_tcc_status() {
   screen="$(tcc_value_for "$system_db" "kTCCServiceScreenCapture")"
   [[ -n "$screen" ]] || screen="$(tcc_value_for "$user_db" "kTCCServiceScreenCapture")"
 
+  automation="$(tcc_value_for "$system_db" "kTCCServiceAppleEvents")"
+  [[ -n "$automation" ]] || automation="$(tcc_value_for "$user_db" "kTCCServiceAppleEvents")"
+
   echo "TCC Accessibility: $(tcc_label "$accessibility")"
   echo "TCC Screen Recording: $(tcc_label "$screen")"
+  echo "TCC Automation/System Events: $(tcc_label "$automation")"
 }
 
 case "$MODE" in

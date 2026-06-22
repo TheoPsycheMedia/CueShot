@@ -102,35 +102,23 @@ struct SettingsView: View {
 
                     SettingsSection(
                         title: "Advanced",
-                        detail: "Experimental Codex App Server can create a new App Server thread, but it is not the primary visible-composer handoff."
+                        detail: "Visible-composer handoff copies first, focuses Codex, then triggers Edit > Paste through macOS Automation."
                     ) {
-                        Toggle("Try Codex App Server after copying", isOn: $model.autoPasteToCodex)
+                        Toggle("Try visible paste into Codex after copying", isOn: $model.autoPasteToCodex)
 
-                        SettingsValueRow(title: "Resolved Codex CLI", value: model.codexCLIResolutionSummary)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Codex CLI path override")
-                                .font(.system(size: 12, weight: .medium))
-                            TextField("/opt/homebrew/bin/codex", text: $model.codexCLIPathOverride)
-                                .textFieldStyle(.roundedBorder)
-                                .focused($focusedField, equals: .codexCLIPathOverride)
-                            Text("Leave blank to check /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, then PATH.")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        SettingsValueRow(title: "Last App Server handoff", value: model.handoffStatusSummary)
-                        SettingsDiagnosticBlock(title: "App Server diagnostic", value: model.appServerDiagnosticSummary)
+                        SettingsValueRow(title: "Last handoff", value: model.handoffStatusSummary)
+                        SettingsValueRow(title: "Automation", value: model.permissions.automationStatus.displayTitle)
+                        SettingsDiagnosticBlock(title: "Legacy paste diagnostic", value: model.appServerDiagnosticSummary)
 
                         Button {
                             model.testCodexHandoff()
                         } label: {
-                            Label("Test App Server Handoff", systemImage: "arrow.clockwise.circle")
+                            Label("Test Visible Paste Handoff", systemImage: "arrow.clockwise.circle")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(PressableMotionStyle())
                         .cueGlass(cornerRadius: 12, interactive: true)
-                        .help("Generate a sample PNG and run a live experimental Codex App Server localImage handoff test.")
+                        .help("Generate a sample PNG, copy it, focus Codex, and trigger Paste.")
                     }
 
                     SettingsSection(
@@ -209,7 +197,7 @@ struct SettingsView: View {
 
                     SettingsSection(
                         title: "Privacy",
-                        detail: "CueShot captures visible pixels locally and uses Accessibility for exact element bounds."
+                        detail: "CueShot captures visible pixels locally, uses Accessibility for exact element bounds, and uses Automation only for optional visible paste."
                     ) {
                         PermissionSettingsRow(title: "Capture listener", detail: "Accessibility required", granted: model.permissions.accessibilityGranted) {
                             model.openPermissionSettings(.accessibility)
@@ -217,8 +205,11 @@ struct SettingsView: View {
                         PermissionSettingsRow(title: "Screen capture", detail: "Uses Screen Recording", granted: model.permissions.screenRecordingGranted) {
                             model.openPermissionSettings(.screenRecording)
                         }
+                        PermissionSettingsRow(title: "Visible paste", detail: "Automation: \(model.permissions.automationStatus.detail)", granted: model.permissions.automationGranted) {
+                            model.openPermissionSettings(.automation)
+                        }
                         SettingsValueRow(title: "Diagnostic", value: model.permissionDiagnosticSummary)
-                        Text("After changing macOS privacy settings, quit and reopen CueShot if capture still fails. CueShot keeps PNG capture local and clipboard-first.")
+                        Text("After changing macOS privacy settings, quit and reopen CueShot if capture still fails. CueShot keeps PNG capture local and clipboard-first; Automation is only used when visible paste is enabled.")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

@@ -36,8 +36,8 @@ This repository contains a native SwiftUI macOS MVP:
 - Area mode for manual drag rectangles and Selection mode for estimated click crops.
 - ScreenCaptureKit still-image capture with PNG encoding.
 - Clipboard PNG/file URL handoff by default: capture, preview, switch to Codex, then press Cmd+V or drag the PNG.
-- Upgrade-safe clipboard-first behavior: older builds that had automatic Codex handoff enabled are migrated back to clipboard-first once; users can re-enable App Server from Advanced settings if they explicitly want to test it.
-- Optional experimental Codex App Server handoff. CueShot reports App Server acceptance separately from visible Codex desktop delivery.
+- Upgrade-safe clipboard-first behavior: older builds that had automatic Codex handoff enabled are migrated back to clipboard-first once; users can re-enable legacy Cmd+V handoff from Advanced settings if they explicitly want to test it.
+- Optional legacy visible-composer handoff: CueShot can focus Codex, focus a likely composer text area through Accessibility, fall back to clicking the visible lower composer area, and post Cmd+V after copying, but attachment receipt still requires visual confirmation.
 - First-run onboarding, Settings, capture history, Save As, reveal history, clear history, and diagnostics logging.
 
 Framer Motion is a React/web animation library, so it is not used as a runtime dependency inside the native app. CueShot mirrors that interaction style with native SwiftUI motion primitives.
@@ -48,7 +48,8 @@ Framer Motion is a React/web animation library, so it is not used as a runtime d
 - Xcode command line tools with Swift 6 support.
 - Accessibility permission for element/window targeting and local event automation.
 - Screen Recording permission for visible pixel capture.
-- Codex App Server is optional and advanced. It requires the Codex CLI; CueShot checks `/opt/homebrew/bin/codex`, `/usr/local/bin/codex`, `~/.local/bin/codex`, then `PATH`; Settings also supports a manual CLI path override. Clipboard and drag/drop remain the primary workflow.
+- Automation permission for the optional visible paste handoff through System Events.
+- Legacy Cmd+V handoff is optional and advanced. Clipboard and drag/drop remain the primary workflow.
 
 ## Run Locally
 
@@ -84,7 +85,7 @@ CueShot needs macOS Privacy grants for the app bundle:
 
 - Accessibility: one-shot capture activation, Accessibility target bounds, and local event automation.
 - Screen Recording: visible pixel capture.
-- Codex App Server: optional experimental handoff into a new App Server-backed thread. If the Codex CLI is unavailable, App Server rejects the turn, or the visible Codex desktop window does not show the new thread, CueShot still keeps the PNG copied, previewed, and saved for Cmd+V or drag/drop.
+- Automation/System Events: optional visible paste handoff that copies first, focuses the real Codex desktop app, clicks the visible lower composer area when needed, and triggers Edit > Paste. If the paste attempt fails or Codex does not attach the PNG, CueShot still keeps the PNG copied, previewed, and saved for manual Cmd+V or drag/drop.
 
 ## Codex Flow
 
@@ -93,9 +94,9 @@ CueShot needs macOS Privacy grants for the app bundle:
 3. Confirm the floating preview says `Copied to Clipboard`.
 4. Switch to Codex and press Cmd+V, drag the preview into Codex, or reveal the PNG in Finder.
 
-## Advanced App Server Truth
+## Advanced Legacy Paste Truth
 
-CueShot does not synthesize Cmd+V into Codex. The optional App Server path starts `codex app-server --listen stdio://`, initializes the connection, starts a thread, and sends a `turn/start` request containing text plus a `localImage` path. A successful response means App Server accepted the image-bearing turn; it does not guarantee the currently visible Codex desktop composer received the PNG. Settings includes a live App Server handoff test, the resolved CLI path, and step diagnostics for launch, initialize, thread, turn, and stderr.
+When the Advanced legacy handoff toggle is on, CueShot copies the PNG, targets the real Codex desktop app, uses Accessibility to focus a likely composer text area, falls back to clicking the visible lower composer area when that input is not exposed, then asks System Events to trigger Codex's Edit > Paste command. A successful paste event only means macOS accepted the paste command; it does not prove the visible Codex composer attached the PNG. Settings includes a live visible paste handoff test and reports whether the paste command was posted.
 
 After granting permissions, quit and reopen CueShot if capture still fails. macOS permissions can apply to a specific app bundle path, so the built app and installed app may need separate approval.
 

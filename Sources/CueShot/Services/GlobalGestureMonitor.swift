@@ -83,6 +83,8 @@ final class GlobalGestureMonitor {
         )
 
         guard eventTap == nil, localEventMonitor == nil, globalEventMonitor == nil else {
+            installEventMonitorsIfNeeded()
+            startMouseTrackingTimerIfNeeded()
             return true
         }
 
@@ -127,7 +129,7 @@ final class GlobalGestureMonitor {
         }
 
         CGEvent.tapEnable(tap: tap, enable: true)
-        installEventMonitors()
+        installEventMonitorsIfNeeded()
         startMouseTrackingTimerIfNeeded()
         return true
     }
@@ -193,7 +195,8 @@ final class GlobalGestureMonitor {
         }
     }
 
-    private func installEventMonitors() {
+    private func installEventMonitorsIfNeeded() {
+        guard localEventMonitor == nil, globalEventMonitor == nil else { return }
         let mask: NSEvent.EventTypeMask = [.flagsChanged, .mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel, .keyDown]
 
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in

@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let showCaptureControlNotification = Notification.Name("com.edgariraheta.CueShot.showCaptureControl")
     private static let selectCaptureModeNotification = Notification.Name("com.edgariraheta.CueShot.selectCaptureMode")
     private static let armCaptureNotification = Notification.Name("com.edgariraheta.CueShot.armCapture")
+    private static let testCodexHandoffNotification = Notification.Name("com.edgariraheta.CueShot.testCodexHandoff")
     private let menuBarController = MenuBarActivationController()
     weak var model: AppModel? {
         didSet {
@@ -154,6 +155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: Self.armCaptureNotification,
             object: nil
         )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(testCodexHandoffFromNotification),
+            name: Self.testCodexHandoffNotification,
+            object: nil
+        )
     }
 
     @objc private func selectCaptureModeFromNotification(_ notification: Notification) {
@@ -173,5 +180,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func armCaptureFromNotification(_ notification: Notification) {
         DiagnosticsLogger().record("app.notification armCapture")
         model?.armCaptureFromFloatingControl()
+    }
+
+    @objc private func testCodexHandoffFromNotification(_ notification: Notification) {
+        DiagnosticsLogger().record("app.notification testCodexHandoff")
+        model?.testCodexHandoff()
     }
 }
