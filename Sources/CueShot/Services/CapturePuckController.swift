@@ -9,10 +9,9 @@ final class CapturePuckController {
     func show(model: AppModel) {
         if panel == nil {
             panel = makePanel(model: model)
-        }
-
-        if let panel, !panel.isVisible {
-            position(panel)
+            if let panel {
+                position(panel)
+            }
         }
 
         if let panel {

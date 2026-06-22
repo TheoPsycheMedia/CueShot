@@ -248,7 +248,6 @@ struct SettingsView: View {
                 .padding(20)
             }
         }
-        .frame(width: 760, height: 720)
         .preferredColorScheme(.dark)
         .onAppear {
             focusedField = nil

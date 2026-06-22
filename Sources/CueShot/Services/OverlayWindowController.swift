@@ -7,7 +7,10 @@ final class OverlayWindowController {
     private var panels: [NSPanel] = []
 
     func show() {
-        guard panels.isEmpty else { return }
+        guard panels.isEmpty else {
+            panels.forEach { $0.orderFrontRegardless() }
+            return
+        }
 
         panels = NSScreen.screens.map { screen in
             let panel = NSPanel(
@@ -18,7 +21,7 @@ final class OverlayWindowController {
                 screen: screen
             )
 
-            panel.level = .statusBar
+            panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
             panel.backgroundColor = .clear
             panel.isOpaque = false
             panel.hasShadow = false
@@ -47,7 +50,7 @@ private final class OverlayViewModel: ObservableObject {
     @Published var snapshot: OverlaySnapshot?
 }
 
-private struct OverlaySnapshot: Equatable {
+private struct OverlaySnapshot {
     let target: CaptureTarget?
     let state: CaptureState
 }
@@ -88,9 +91,9 @@ private struct CaptureOverlayPanelView: View {
                     .padding(.vertical, 7)
                     .cueTintedGlass(CueColor.reticle.opacity(0.16), cornerRadius: 10)
                     .position(x: rect.minX + 74, y: max(18, rect.minY - 18))
+                    .transition(.opacity)
                 }
             }
-            .animation(MotionSpec.captureSpring, value: model.snapshot)
         }
     }
 

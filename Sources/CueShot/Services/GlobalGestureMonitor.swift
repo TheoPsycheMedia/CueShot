@@ -53,8 +53,13 @@ final class GlobalGestureMonitor {
     private var isRunning = false
     private var lastMoveEmittedAt: TimeInterval = 0
     private var lastMoveEmittedPoint: CGPoint?
-    private let moveEmitInterval: TimeInterval = 0.050
-    private let moveEmitDistance: CGFloat = 22
+    private var lastProcessedEventSignature: String?
+    private let moveEmitInterval: TimeInterval = 0.025
+    private let moveEmitDistance: CGFloat = 12
+    private let deduplicationWindow: TimeInterval = 0.008
+    private var mouseTrackingTimer: Timer?
+    private var lastTrackedMousePoint: CGPoint?
+    private let mouseTrackingInterval: TimeInterval = 0.016 // ~60fps
 
     func start(
         capturesPlainClick: Bool = false,
@@ -62,12 +67,13 @@ final class GlobalGestureMonitor {
         excludedZones: [GestureExclusionZone] = [],
         resizeBindings: CaptureResizeBindings = CaptureResizeBindings()
     ) -> Bool {
-        capturesNextPlainClick = capturesNextPlainClick || capturesPlainClick
-        capturesNextAreaDrag = capturesNextAreaDrag || capturesAreaDrag
+        capturesNextPlainClick = capturesPlainClick
+        capturesNextAreaDrag = capturesAreaDrag
         isRunning = true
         areaDragStart = nil
         lastMoveEmittedAt = 0
         lastMoveEmittedPoint = nil
+        lastProcessedEventSignature = nil
         eventTapContext.monitor = self
         eventTapContext.configure(
             capturesPlainClick: capturesNextPlainClick,
@@ -121,6 +127,8 @@ final class GlobalGestureMonitor {
         }
 
         CGEvent.tapEnable(tap: tap, enable: true)
+        installEventMonitors()
+        startMouseTrackingTimerIfNeeded()
         return true
     }
 
@@ -155,6 +163,34 @@ final class GlobalGestureMonitor {
         areaDragStart = nil
         lastMoveEmittedAt = 0
         lastMoveEmittedPoint = nil
+        lastProcessedEventSignature = nil
+        lastTrackedMousePoint = nil
+        mouseTrackingTimer?.invalidate()
+        mouseTrackingTimer = nil
+    }
+
+    private func startMouseTrackingTimerIfNeeded() {
+        guard capturesNextPlainClick, mouseTrackingTimer == nil else { return }
+        lastTrackedMousePoint = nil
+        mouseTrackingTimer = Timer.scheduledTimer(withTimeInterval: mouseTrackingInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning else { return }
+                self.tickMouseTracking()
+            }
+        }
+    }
+
+    private func tickMouseTracking() {
+        let currentPoint = NSEvent.mouseLocation
+        guard let lastPoint = lastTrackedMousePoint else {
+            lastTrackedMousePoint = currentPoint
+            return
+        }
+        guard hypot(currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y) >= 2 else { return }
+        lastTrackedMousePoint = currentPoint
+        if capturesNextPlainClick || commandDown {
+            emit(.moved(point: currentPoint))
+        }
     }
 
     private func installEventMonitors() {
@@ -192,6 +228,14 @@ final class GlobalGestureMonitor {
         }
 
         guard isRunning else { return }
+
+        // Deduplicate events that may arrive from both CGEvent tap and NSEvent monitors
+        let roundedTimestamp = Int(snapshot.timestamp * 100) // 10ms precision
+        let signature = "\(snapshot.type.rawValue)_\(roundedTimestamp)"
+        if let lastSignature = lastProcessedEventSignature, lastSignature == signature {
+            return
+        }
+        lastProcessedEventSignature = signature
 
         switch snapshot.type {
         case .flagsChanged:

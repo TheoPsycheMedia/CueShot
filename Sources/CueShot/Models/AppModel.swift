@@ -94,9 +94,9 @@ final class AppModel: ObservableObject {
     private var lastHoverPoint: CGPoint?
     private var lastHoverTarget: CaptureTarget?
     private var precisionSelectionState: PrecisionSelectionState?
-    private let hoverResolveInterval: TimeInterval = 0.085
-    private let fastHoverResolveInterval: TimeInterval = 0.045
-    private let fastHoverDistance: CGFloat = 48
+    private let hoverResolveInterval: TimeInterval = 0.050
+    private let fastHoverResolveInterval: TimeInterval = 0.025
+    private let fastHoverDistance: CGFloat = 24
     private let minimumAreaSize: CGFloat = 8
 
     init(userDefaults: UserDefaults = .standard) {
