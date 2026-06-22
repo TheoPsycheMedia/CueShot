@@ -12,6 +12,7 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
     case selectWindowMode
     case selectAreaMode
     case selectScreenMode
+    case selectOCRMode
     case openSettings
     case showOnboarding
 
@@ -29,6 +30,7 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
         case .selectWindowMode: "Use Window Capture"
         case .selectAreaMode: "Use Area Capture"
         case .selectScreenMode: "Use Screen Capture"
+        case .selectOCRMode: "Use OCR Capture"
         case .openSettings: "Open Settings"
         case .showOnboarding: "Show Onboarding"
         }
@@ -46,6 +48,7 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
         case .selectWindowMode: "Capture the window under the cursor."
         case .selectAreaMode: "Draw a manual rectangle."
         case .selectScreenMode: "Capture the display you click."
+        case .selectOCRMode: "Capture and recognize text from an estimated region around the click."
         case .openSettings: "Open CueShot settings."
         case .showOnboarding: "Show the setup walkthrough again."
         }
@@ -63,6 +66,7 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
         case .selectWindowMode: "macwindow"
         case .selectAreaMode: "selection.pin.in.out"
         case .selectScreenMode: "display"
+        case .selectOCRMode: "text.viewfinder"
         case .openSettings: "gearshape"
         case .showOnboarding: "sparkles"
         }
@@ -73,6 +77,8 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
         case .showCaptureControl, .toggleCaptureControl, .armCapture, .cancelCapture, .copyLastPNG:
             "Capture"
         case .selectElementMode, .selectSelectionMode, .selectWindowMode, .selectAreaMode, .selectScreenMode:
+            "Capture Type"
+        case .selectOCRMode:
             "Capture Type"
         case .openSettings, .showOnboarding:
             "App"
@@ -101,6 +107,8 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
             CueShotShortcut(key: .four, modifiers: [.command, .option])
         case .selectScreenMode:
             CueShotShortcut(key: .five, modifiers: [.command, .option])
+        case .selectOCRMode:
+            CueShotShortcut(key: .six, modifiers: [.command, .option])
         case .openSettings:
             CueShotShortcut(key: .comma, modifiers: [.command])
         case .showOnboarding:
@@ -120,6 +128,7 @@ enum CueShotCommand: String, CaseIterable, Identifiable, Codable, Hashable, Send
             .selectWindowMode,
             .selectAreaMode,
             .selectScreenMode,
+            .selectOCRMode,
             .openSettings,
             .showOnboarding
         ]

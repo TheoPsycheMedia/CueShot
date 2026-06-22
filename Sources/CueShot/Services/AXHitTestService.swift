@@ -7,7 +7,7 @@ struct AXHitTestService {
         switch mode {
         case .screen:
             return screenTarget(at: point)
-        case .selection:
+        case .selection, .ocr:
             return estimatedTarget(at: point, confidence: .estimated)
         case .area:
             return screenTarget(at: point)

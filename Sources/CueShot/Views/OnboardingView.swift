@@ -137,6 +137,7 @@ private struct OnboardingModeRow: View {
                 HStack(spacing: 8) {
                     ModeChip(title: "Window", detail: "Click window", systemImage: "macwindow")
                     ModeChip(title: "Screen", detail: "Click display", systemImage: "display")
+                    ModeChip(title: "OCR", detail: "Extract text", systemImage: "text.viewfinder")
                     Spacer(minLength: 0)
                 }
             }

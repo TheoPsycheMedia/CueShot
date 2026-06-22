@@ -5,14 +5,83 @@ import XCTest
 final class ModeAndOnboardingTests: XCTestCase {
     func testSelectionModeIsSeparateFromManualAreaMode() {
         XCTAssertTrue(CaptureMode.allCases.contains(.selection))
+        XCTAssertTrue(CaptureMode.allCases.contains(.ocr))
+        XCTAssertEqual(CaptureMode.allCases.prefix(4), [.element, .window, .area, .screen])
         XCTAssertEqual(CaptureMode.selection.title, "Selection")
         XCTAssertEqual(CaptureMode.selection.puckPickerTitle, "Select")
         XCTAssertEqual(CaptureMode.selection.helpText, "Estimated crop around the next click.")
         XCTAssertEqual(CaptureMode.area.helpText, "Manual drag rectangle capture.")
+        XCTAssertEqual(CaptureMode.ocr.title, "OCR")
+        XCTAssertEqual(CaptureMode.ocr.helpText, "Estimated region capture with OCR text extraction.")
     }
 
-    func testManualAreaTargetUsesDragRectangle() {
+    func testOCRTextNormalizationSkipsBlankLinesAndWhitespace() {
+        let record = CaptureRecord(
+            id: UUID(),
+            createdAt: .now,
+            mode: .ocr,
+            confidence: "Estimated",
+            sourceAppName: "CueShotTests",
+            axRole: "Estimated",
+            dimensions: "120 x 50",
+            fileSize: "1 KB",
+            handoffStatus: "Prepared",
+            pngRelativePath: nil,
+            recognizedText: "\n  first line  \n\n  second line  \n  "
+        )
+
+        XCTAssertEqual(record.normalizedOCRText, "first line\nsecond line")
+    }
+
+    @MainActor
+    func testThemePreferencePersistsAndUpdatesDesignTokens() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            CueColor.use(.optic)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        XCTAssertEqual(model.selectedTheme, .optic)
+
+        model.selectedTheme = .aurora
+        XCTAssertEqual(CueColor.theme, .aurora)
+
+        let reloaded = AppModel(userDefaults: defaults)
+        XCTAssertEqual(reloaded.selectedTheme, .aurora)
+        XCTAssertEqual(CueColor.theme, .aurora)
+    }
+
+    @MainActor
+    func testThemeCyclingMatchesCodexMeterStyleMoodPattern() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            CueColor.use(.optic)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+
+        model.cycleTheme()
+        XCTAssertEqual(model.selectedTheme, .aurora)
+
+        model.cycleTheme()
+        XCTAssertEqual(model.selectedTheme, .moss)
+
+        model.cycleTheme()
+        XCTAssertEqual(model.selectedTheme, .cinder)
+
+        model.cycleTheme()
+        XCTAssertEqual(model.selectedTheme, .optic)
+    }
+
+    func testManualAreaTargetUsesDragRectangle() throws {
         let screenFrame = CGDisplayBounds(CGMainDisplayID())
+        guard screenFrame.width > 0, screenFrame.height > 0 else {
+            throw XCTSkip("Main display bounds are unavailable in this test environment.")
+        }
         let start = CGPoint(x: screenFrame.midX - 80, y: screenFrame.midY - 40)
         let end = CGPoint(x: screenFrame.midX + 120, y: screenFrame.midY + 110)
         let target = AXHitTestService().areaTarget(from: start, to: end)
@@ -50,6 +119,49 @@ final class ModeAndOnboardingTests: XCTestCase {
         XCTAssertEqual(adjusted.rect.height, target.rect.height, accuracy: 1)
     }
 
+    func testPreciseScrollStepUsesSmallStableAdjustment() {
+        let step = CaptureRectAdjuster.scrollStep(for: 0.2)
+
+        XCTAssertGreaterThan(step, 0)
+        XCTAssertLessThan(step, 6)
+    }
+
+    func testLargeScrollDeltaIsClampedToAvoidJumping() {
+        let step = CaptureRectAdjuster.scrollStep(for: 24)
+
+        XCTAssertLessThanOrEqual(abs(step), 18)
+    }
+
+    func testPrecisionSelectionStatePreservesAnchorPointDuringResize() {
+        let target = CaptureTarget(
+            point: CGPoint(x: 300, y: 200),
+            screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            rect: CGRect(x: 220, y: 150, width: 160, height: 100),
+            sourceAppName: "CueShotTests",
+            sourceBundleID: nil,
+            axRole: "Estimated",
+            axSubrole: nil,
+            axTitle: nil,
+            confidence: .estimated
+        )
+        let state = PrecisionSelectionState(
+            baseTarget: target,
+            anchorPoint: target.point,
+            adjustedSize: CGSize(width: 220, height: 100),
+            activeAxis: .width
+        )
+        let preview = CaptureRectAdjuster.targetWithAdjustedRect(
+            state.baseTarget,
+            centeredAt: state.anchorPoint,
+            size: state.adjustedSize
+        )
+
+        XCTAssertEqual(preview.point.x, target.point.x, accuracy: 0.1)
+        XCTAssertEqual(preview.point.y, target.point.y, accuracy: 0.1)
+        XCTAssertEqual(preview.rect.width, 220, accuracy: 1)
+        XCTAssertEqual(preview.rect.height, 100, accuracy: 1)
+    }
+
     func testScrollResizeClampsAdjustedRectangleToScreen() {
         let screenFrame = CGRect(x: 0, y: 0, width: 320, height: 240)
         let target = CaptureTarget(
@@ -76,6 +188,27 @@ final class ModeAndOnboardingTests: XCTestCase {
         XCTAssertEqual(adjusted.rect.minY, screenFrame.minY, accuracy: 1)
         XCTAssertLessThanOrEqual(adjusted.rect.maxX, screenFrame.maxX + 1)
         XCTAssertLessThanOrEqual(adjusted.rect.maxY, screenFrame.maxY + 1)
+    }
+
+    func testCaptureCoordinateMapperTranslatesRectIntoDisplayLocalSpace() {
+        let displayFrame = CGRect(x: -1728, y: 0, width: 1728, height: 1117)
+        let captureRect = CGRect(x: -1500, y: 120, width: 240, height: 90)
+        let sourceRect = CaptureCoordinateMapper.sourceRect(for: captureRect, in: displayFrame)
+
+        XCTAssertEqual(sourceRect.minX, 228, accuracy: 1)
+        XCTAssertEqual(sourceRect.minY, 120, accuracy: 1)
+        XCTAssertEqual(sourceRect.width, 240, accuracy: 1)
+        XCTAssertEqual(sourceRect.height, 90, accuracy: 1)
+    }
+
+    func testCaptureCoordinateMapperRoundsPixelSizeUsingDisplayScale() {
+        let pixelSize = CaptureCoordinateMapper.outputSize(
+            for: CGRect(x: 0, y: 0, width: 101.2, height: 50.4),
+            displayScale: 2
+        )
+
+        XCTAssertEqual(pixelSize.width, 203, accuracy: 0.1)
+        XCTAssertEqual(pixelSize.height, 101, accuracy: 0.1)
     }
 
     func testResizeBindingsMapSelectedModifiersToAxes() {
@@ -249,11 +382,39 @@ final class ModeAndOnboardingTests: XCTestCase {
         }
 
         let model = AppModel(userDefaults: defaults)
-        model.captureState = .copyFallback(reason: "Previous capture copied.")
+        model.captureState = .copied(reason: "Previous capture copied.")
 
         model.selectMode(.screen)
 
         XCTAssertEqual(model.selectedMode, .screen)
         XCTAssertEqual(model.captureState, .ready)
+    }
+
+    @MainActor
+    func testCaptureControlPresentationFollowsCoreWorkflowStates() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        let capture = CaptureRecord.samples[0]
+        model.recentCaptures = [capture]
+        model.selectedCaptureID = capture.id
+
+        XCTAssertEqual(model.captureControlPresentation, .idle)
+
+        model.captureState = .armed
+        XCTAssertEqual(model.captureControlPresentation, .armed)
+
+        model.captureState = .copied(reason: "PNG copied.")
+        XCTAssertEqual(model.captureControlPresentation, .captured(capture))
+
+        model.captureState = .permissionNeeded(.accessibility)
+        XCTAssertEqual(model.captureControlPresentation, .permission(.accessibility))
+
+        model.captureState = .failed(reason: "Area too small")
+        XCTAssertEqual(model.captureControlPresentation, .failed("Area too small"))
     }
 }

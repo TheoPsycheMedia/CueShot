@@ -14,7 +14,7 @@ struct CueShotApp: App {
     var body: some Scene {
         WindowGroup("CueShot", id: "main") {
             ContentView(model: model)
-                .frame(minWidth: 900, idealWidth: 980, maxWidth: 1180, minHeight: 620, idealHeight: 680, maxHeight: 820)
+                .frame(minWidth: 760, idealWidth: 860, maxWidth: 980, minHeight: 500, idealHeight: 560, maxHeight: 680)
                 .preferredColorScheme(.dark)
                 .onAppear {
                     appDelegate.model = model
@@ -36,6 +36,7 @@ struct CueShotApp: App {
                 CueShotCommandMenuButton(model: model, command: .selectWindowMode)
                 CueShotCommandMenuButton(model: model, command: .selectAreaMode)
                 CueShotCommandMenuButton(model: model, command: .selectScreenMode)
+                CueShotCommandMenuButton(model: model, command: .selectOCRMode)
 
                 Divider()
 

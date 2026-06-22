@@ -111,6 +111,7 @@ Capture modes:
 - Window: containing window.
 - Area: drag a manual rectangle after arming capture.
 - Selection: estimated crop around the next click.
+- OCR: estimated crop around the next click with recognized text preview and copy.
 - Screen: current display.
 
 ## Verification

@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class CapturePuckController {
     private var panel: NSPanel?
-    private let panelSize = NSSize(width: 468, height: 288)
+    private let initialPanelSize = CaptureControlPresentation.idle.panelSize
 
     func show(model: AppModel) {
         if panel == nil {
@@ -15,6 +15,9 @@ final class CapturePuckController {
             position(panel)
         }
 
+        if let panel {
+            Self.resize(panel, to: model.captureControlPresentation.panelSize, animated: false)
+        }
         panel?.orderFrontRegardless()
     }
 
@@ -39,7 +42,7 @@ final class CapturePuckController {
 
     private func makePanel(model: AppModel) -> NSPanel {
         let panel = FloatingCapturePanel(
-            contentRect: NSRect(origin: .zero, size: panelSize),
+            contentRect: NSRect(origin: .zero, size: initialPanelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -57,7 +60,13 @@ final class CapturePuckController {
         panel.setAccessibilityElement(true)
         panel.setAccessibilityRole(.window)
         panel.setAccessibilityTitle("CueShot Capture Control")
-        panel.contentView = NSHostingView(rootView: CapturePuckView(model: model).preferredColorScheme(.dark))
+        panel.contentView = NSHostingView(
+            rootView: CapturePuckView(model: model) { [weak panel] size in
+                guard let panel else { return }
+                Self.resize(panel, to: size, animated: true)
+            }
+            .preferredColorScheme(.dark)
+        )
         return panel
     }
 
@@ -74,6 +83,20 @@ final class CapturePuckController {
         )
         panel.setFrameOrigin(origin)
     }
+
+    private static func resize(_ panel: NSPanel, to size: CGSize, animated: Bool) {
+        let current = panel.frame
+        guard abs(current.width - size.width) > 0.5 || abs(current.height - size.height) > 0.5 else {
+            return
+        }
+
+        var origin = CGPoint(x: current.maxX - size.width, y: current.maxY - size.height)
+        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? current
+        origin.x = min(max(origin.x, visibleFrame.minX + 8), visibleFrame.maxX - size.width - 8)
+        origin.y = min(max(origin.y, visibleFrame.minY + 8), visibleFrame.maxY - size.height - 8)
+
+        panel.setFrame(NSRect(origin: origin, size: size), display: true, animate: animated)
+    }
 }
 
 private final class FloatingCapturePanel: NSPanel {
@@ -83,36 +106,27 @@ private final class FloatingCapturePanel: NSPanel {
 
 private struct CapturePuckView: View {
     @ObservedObject var model: AppModel
+    let resize: (CGSize) -> Void
     @State private var appeared = false
+
+    private var presentation: CaptureControlPresentation {
+        model.captureControlPresentation
+    }
 
     var body: some View {
         CueGlassGroup(spacing: 8) {
-            VStack(spacing: 10) {
-                HStack(spacing: 11) {
-                    statusGlyph
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        Text(detail)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    captureActionButton
-                    utilityMenu
+            content
+                .padding(.horizontal, 11)
+                .padding(.vertical, 9)
+                .frame(width: presentation.panelSize.width, height: presentation.panelSize.height)
+                .cueGlass(cornerRadius: 20, interactive: true)
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .onAppear {
+                    resize(presentation.panelSize)
                 }
-
-                modePicker
-                clipboardPreview
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(width: 468, height: 288)
-            .cueGlass(cornerRadius: 24, interactive: true)
+                .onChange(of: presentation) { _, newPresentation in
+                    resize(newPresentation.panelSize)
+                }
             .scaleEffect(appeared ? 1 : 0.96)
             .opacity(appeared ? 1 : 0)
             .animation(MotionSpec.entrance, value: appeared)
@@ -121,43 +135,56 @@ private struct CapturePuckView: View {
     }
 
     @ViewBuilder
-    private var clipboardPreview: some View {
-        if let capture = model.selectedCapture {
-            CapturePuckPreviewCard(model: model, capture: capture)
-        } else {
-            CapturePuckPreviewPlaceholder()
+    private var content: some View {
+        switch presentation {
+        case .idle:
+            PuckIdleBar(model: model)
+        case .armed:
+            PuckArmedBar(model: model)
+        case .captured(let capture):
+            PuckResultCard(model: model, capture: capture)
+        case .permission(let kind):
+            PuckPermissionCard(model: model, kind: kind)
+        case .failed(let message):
+            PuckFailureCard(model: model, message: message)
         }
     }
+}
 
-    @ViewBuilder
-    private var captureActionButton: some View {
-        if model.oneClickCaptureArmed {
-            Button {
-                model.cancelOneClickCapture()
-            } label: {
-                Label("Cancel", systemImage: "xmark")
-                    .labelStyle(.titleAndIcon)
-                    .frame(width: 86)
-            }
-            .accessibilityIdentifier("CapturePuckStopButton")
-            .buttonStyle(PressableMotionStyle())
-            .cueTintedGlass(.orange.opacity(0.18), cornerRadius: 14, interactive: true)
-        } else {
-            Button {
-                model.armCaptureFromFloatingControl()
-            } label: {
-                Label("Arm", systemImage: "scope")
-                    .labelStyle(.titleAndIcon)
-                    .frame(width: 76)
-            }
-            .accessibilityIdentifier("CapturePuckCaptureButton")
-            .buttonStyle(PressableMotionStyle())
-            .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 14, interactive: true)
+private extension CaptureControlPresentation {
+    var panelSize: CGSize {
+        switch self {
+        case .idle:
+            CGSize(width: 420, height: 92)
+        case .armed:
+            CGSize(width: 318, height: 62)
+        case .captured:
+            CGSize(width: 420, height: 152)
+        case .permission, .failed:
+            CGSize(width: 390, height: 132)
         }
     }
+}
 
-    private var utilityMenu: some View {
+private struct PuckUtilityMenu: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
         Menu {
+            Button("Copy Last PNG") {
+                model.copyLastCapture()
+            }
+            .disabled(model.selectedCapture == nil)
+            Button("Save PNG As...") {
+                model.saveSelectedCaptureAs()
+            }
+            .disabled(model.selectedCapture == nil)
+            if let capture = model.selectedCapture {
+                Button("Reveal PNG") {
+                    model.revealCapture(capture)
+                }
+            }
+            Divider()
             Button("Hide Button") {
                 model.hideCapturePuck()
             }
@@ -181,123 +208,283 @@ private struct CapturePuckView: View {
         }
         .accessibilityIdentifier("CapturePuckMenuButton")
         .accessibilityLabel("Capture control menu")
-        .accessibilityHint("Opens CueShot settings, onboarding, and app controls.")
+        .accessibilityHint("Opens capture, file, settings, onboarding, and app controls.")
         .menuStyle(.button)
         .buttonStyle(.plain)
     }
+}
 
-    private var modePicker: some View {
-        HStack(spacing: 6) {
+private struct PuckStatusGlyph: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill((model.captureState.isActive ? CueColor.reticle : .white).opacity(0.12))
+                .frame(width: 30, height: 30)
+            Image(systemName: model.captureState.isActive ? "scope" : "viewfinder")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(model.captureState.isActive ? CueColor.reticle : .primary)
+        }
+        .cueTintedGlass((model.captureState.isActive ? CueColor.reticle : .white).opacity(0.12), cornerRadius: 15)
+    }
+}
+
+private struct PuckIdleBar: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                PuckStatusGlyph(model: model)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Capture for Codex")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(model.selectedMode.puckIdleDetail)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button {
+                    model.armCaptureFromFloatingControl()
+                } label: {
+                    Label("Arm", systemImage: "scope")
+                        .labelStyle(.titleAndIcon)
+                        .frame(width: 68)
+                }
+                .accessibilityIdentifier("CapturePuckCaptureButton")
+                .buttonStyle(PressableMotionStyle())
+                .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 12, interactive: true)
+                PuckUtilityMenu(model: model)
+            }
+
+            PuckModePicker(model: model)
+        }
+    }
+}
+
+private struct PuckArmedBar: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 9) {
+            PuckStatusGlyph(model: model)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.selectedMode.puckArmedTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Text(model.selectedMode.puckArmedDetail)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                model.cancelOneClickCapture()
+            } label: {
+                Label("Cancel", systemImage: "xmark")
+                    .labelStyle(.titleAndIcon)
+                    .frame(width: 78)
+            }
+            .accessibilityIdentifier("CapturePuckStopButton")
+            .buttonStyle(PressableMotionStyle())
+            .cueTintedGlass(.orange.opacity(0.18), cornerRadius: 12, interactive: true)
+        }
+    }
+}
+
+private struct PuckModePicker: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 5) {
             ForEach(CaptureMode.allCases) { mode in
                 Button {
                     model.selectMode(mode)
                 } label: {
-                    VStack(spacing: 4) {
+                    HStack(spacing: 4) {
                         Image(systemName: mode.symbol)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                         Text(mode.puckPickerTitle)
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                            .minimumScaleFactor(0.72)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: 26)
                     .foregroundStyle(model.selectedMode == mode ? CueColor.reticle : .secondary)
                 }
                 .accessibilityIdentifier("CapturePuckMode-\(mode.rawValue)")
                 .buttonStyle(PressableMotionStyle())
-                .cueTintedGlass((model.selectedMode == mode ? CueColor.reticle : .white).opacity(model.selectedMode == mode ? 0.20 : 0.08), cornerRadius: 13, interactive: true)
+                .cueTintedGlass(
+                    (model.selectedMode == mode ? CueColor.reticle : .white).opacity(model.selectedMode == mode ? 0.18 : 0.07),
+                    cornerRadius: 9,
+                    interactive: true
+                )
                 .help(mode.helpText)
             }
         }
     }
+}
 
-    private var statusGlyph: some View {
-        ZStack {
-            Circle()
-                .fill((model.oneClickCaptureArmed ? CueColor.reticle : .white).opacity(0.12))
-                .frame(width: 42, height: 42)
-            Image(systemName: model.oneClickCaptureArmed ? "scope" : "viewfinder")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(model.oneClickCaptureArmed ? CueColor.reticle : .primary)
+private struct PuckPermissionCard: View {
+    @ObservedObject var model: AppModel
+    let kind: PermissionKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(kind.title) needed")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(kind.message)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                PuckUtilityMenu(model: model)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.openPermissionSettings(kind)
+                } label: {
+                    Label("Open Settings", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PressableMotionStyle())
+                .cueTintedGlass(.orange.opacity(0.18), cornerRadius: 12, interactive: true)
+
+                Button {
+                    model.dismissCaptureStatus()
+                } label: {
+                    Text("Not Now")
+                        .frame(width: 82)
+                }
+                .buttonStyle(PressableMotionStyle())
+                .cueGlass(cornerRadius: 12, interactive: true)
+            }
+            .font(.system(size: 11, weight: .semibold))
         }
-        .cueTintedGlass((model.oneClickCaptureArmed ? CueColor.reticle : .white).opacity(0.12), cornerRadius: 21)
-    }
-
-    private var title: String {
-        model.oneClickCaptureArmed ? model.selectedMode.puckArmedTitle : model.selectedMode.puckIdleTitle
-    }
-
-    private var detail: String {
-        model.oneClickCaptureArmed ? model.selectedMode.puckArmedDetail : model.selectedMode.puckIdleDetail
     }
 }
 
-private struct CapturePuckPreviewCard: View {
+private struct PuckFailureCard: View {
+    @ObservedObject var model: AppModel
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Capture failed")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(message)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                PuckUtilityMenu(model: model)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.armCaptureFromFloatingControl()
+                } label: {
+                    Label("Try Again", systemImage: model.selectedMode.symbol)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PressableMotionStyle())
+                .cueTintedGlass(CueColor.reticle.opacity(0.18), cornerRadius: 12, interactive: true)
+
+                Button {
+                    model.dismissCaptureStatus()
+                } label: {
+                    Text("Dismiss")
+                        .frame(width: 82)
+                }
+                .buttonStyle(PressableMotionStyle())
+                .cueGlass(cornerRadius: 12, interactive: true)
+            }
+            .font(.system(size: 11, weight: .semibold))
+        }
+    }
+}
+
+private struct PuckResultCard: View {
     @ObservedObject var model: AppModel
     let capture: CaptureRecord
 
     var body: some View {
-        HStack(spacing: 10) {
-            thumbnail
+        VStack(spacing: 9) {
+            HStack(spacing: 8) {
+                Label("Copied", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(CueColor.reticle)
+                Text("\(capture.mode.title) · \(capture.dimensions) · \(capture.fileSize)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                PuckUtilityMenu(model: model)
+            }
 
-            VStack(alignment: .leading, spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("Copied to Clipboard", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(CueColor.reticle)
-                    Text("\(capture.mode.title) · \(capture.dimensions) · \(capture.fileSize)")
-                        .font(.system(size: 10, weight: .medium))
+            HStack(spacing: 10) {
+                thumbnail
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Press Cmd+V in Codex or drag this thumbnail.")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .lineLimit(2)
+
+                    if let ocrText = capture.normalizedOCRText {
+                        Text(ocrText)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+
+                    HStack(spacing: 7) {
+                        Button {
+                            model.copyLastCapture()
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .frame(maxWidth: .infinity)
+                        }
+                        if let _ = capture.normalizedOCRText {
+                            Button {
+                                model.copyOCRText(capture)
+                            } label: {
+                                Label("Copy OCR", systemImage: "textformat")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+
+                        Button {
+                            model.revealCapture(capture)
+                        } label: {
+                            Label("Reveal", systemImage: "folder")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(PressableMotionStyle())
                 }
-
-                HStack(spacing: 7) {
-                    Button {
-                        model.copyLastCapture()
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    Button {
-                        model.revealCapture(capture)
-                    } label: {
-                        Label("Reveal", systemImage: "folder")
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    Button {
-                        model.openMainWindow()
-                    } label: {
-                        Label("Open", systemImage: "arrow.up.forward.app")
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(PressableMotionStyle())
             }
-        }
-        .padding(9)
-        .frame(height: 102)
-        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .strokeBorder(CueColor.reticle.opacity(0.18), lineWidth: 1)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .onDrag {
-            guard let url = model.selectedCaptureURL,
-                  let provider = NSItemProvider(contentsOf: url)
-            else {
-                return NSItemProvider(object: capture.sourceAppName as NSString)
-            }
-            return provider
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Clipboard preview. \(capture.mode.title) capture, \(capture.dimensions), \(capture.fileSize). Copied to clipboard.")
-        .accessibilityHint("Copy again, reveal the saved PNG in Finder, open CueShot, or drag this preview into another app.")
+        .accessibilityLabel("Copied. \(capture.mode.title) capture, \(capture.dimensions), \(capture.fileSize). Press Command V in Codex or drag the thumbnail.")
     }
 
     @ViewBuilder
@@ -312,6 +499,14 @@ private struct CapturePuckPreviewCard: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(.white.opacity(0.14), lineWidth: 1)
                 }
+                .onDrag {
+                    guard let url = model.selectedCaptureURL,
+                          let provider = NSItemProvider(contentsOf: url)
+                    else {
+                        return NSItemProvider(object: capture.sourceAppName as NSString)
+                    }
+                    return provider
+                }
                 .accessibilityHidden(true)
         } else {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -324,39 +519,5 @@ private struct CapturePuckPreviewCard: View {
                 }
                 .accessibilityHidden(true)
         }
-    }
-}
-
-private struct CapturePuckPreviewPlaceholder: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.white.opacity(0.08))
-                .frame(width: 92, height: 64)
-                .overlay {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Clipboard preview")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("Your next capture will appear here.")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer()
-        }
-        .padding(9)
-        .frame(height: 88)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .strokeBorder(.white.opacity(0.09), lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Clipboard preview. Your next capture will appear here.")
     }
 }

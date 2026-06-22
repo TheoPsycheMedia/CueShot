@@ -5,8 +5,9 @@ struct CaptureLensView: View {
     @State private var pulse = false
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             ModeHeader(model: model)
+            CaptureModeStrip(model: model)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -41,15 +42,51 @@ struct CaptureLensView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.985)))
                 }
             }
-            .frame(minHeight: 290)
-            .cueGlass(cornerRadius: 28)
+            .frame(minHeight: 240)
+            .cueGlass(cornerRadius: 22)
 
             LensActionRow(model: model)
         }
-        .padding(16)
-        .cueGlass(cornerRadius: 26)
+        .padding(12)
+        .cueGlass(cornerRadius: 22)
         .onAppear {
             pulse = true
+        }
+    }
+}
+
+private struct CaptureModeStrip: View {
+    @ObservedObject var model: AppModel
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 3)
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 7) {
+            ForEach(CaptureMode.allCases) { mode in
+                Button {
+                    model.selectMode(mode)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.symbol)
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 14)
+                        Text(mode.puckPickerTitle)
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .foregroundStyle(model.selectedMode == mode ? CueColor.reticle : .secondary)
+                }
+                .accessibilityIdentifier("CaptureLensMode-\(mode.rawValue)")
+                .accessibilityLabel("Use \(mode.title) Capture")
+                .buttonStyle(PressableMotionStyle())
+                .cueTintedGlass(
+                    (model.selectedMode == mode ? CueColor.reticle : .white).opacity(model.selectedMode == mode ? 0.18 : 0.07),
+                    cornerRadius: 10,
+                    interactive: true
+                )
+                .help(mode.helpText)
+            }
         }
     }
 }
@@ -70,7 +107,7 @@ private struct ModeHeader: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(model.selectedMode.title) - \(model.selectedMode.methodTitle)")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                 Text(model.captureState.isActive ? model.captureState.detail : model.selectedMode.idleInstruction)
@@ -97,7 +134,7 @@ private struct LensActionRow: View {
             Button {
                 model.toggleCapturePuck()
             } label: {
-                Label(model.capturePuckVisible ? "Hide Floating Control" : "Show Floating Control", systemImage: model.capturePuckVisible ? "eye.slash" : "scope")
+                Label(model.capturePuckVisible ? "Hide Capture Control" : "Show Capture Control", systemImage: model.capturePuckVisible ? "eye.slash" : "scope")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(PressableMotionStyle())
@@ -141,9 +178,9 @@ private struct EmptyLensPlate: View {
             }
 
             VStack(spacing: 5) {
-                Text("Ready for \(mode.title)")
+                Text("Ready")
                     .font(.system(size: 15, weight: .semibold))
-                Text(mode.idleInstruction)
+                Text("Use the floating control to choose a mode, arm, then click or drag.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -151,9 +188,9 @@ private struct EmptyLensPlate: View {
             }
 
             HStack(spacing: 8) {
-                StepPill(index: "1", title: "Choose mode")
-                StepPill(index: "2", title: "Arm control")
-                StepPill(index: "3", title: mode == .area ? "Drag" : "Click")
+                StepPill(index: "1", title: "Show control")
+                StepPill(index: "2", title: "Choose mode")
+                StepPill(index: "3", title: "Arm")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

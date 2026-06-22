@@ -37,10 +37,10 @@ final class HandoffTruthTests: XCTestCase {
         XCTAssertFalse(report.summary.contains("App Server"))
     }
 
-    func testReadyToDragCopyLanguageDoesNotClaimVisibleCodexDelivery() {
-        let state = CaptureState.readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
+    func testCopiedStateLanguageDoesNotClaimVisibleCodexDelivery() {
+        let state = CaptureState.copied(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
 
-        XCTAssertEqual(state.label, "Ready to Drag")
+        XCTAssertEqual(state.label, "Copied")
         XCTAssertTrue(state.detail.contains("PNG copied"))
         XCTAssertTrue(state.detail.contains("Cmd+V"))
         XCTAssertTrue(state.detail.contains("drag the preview"))

@@ -11,6 +11,12 @@ final class AppModel: ObservableObject {
             userDefaults.set(selectedMode.rawValue, forKey: PreferenceKey.selectedMode)
         }
     }
+    @Published var selectedTheme: CueTheme = .optic {
+        didSet {
+            CueColor.use(selectedTheme)
+            userDefaults.set(selectedTheme.rawValue, forKey: PreferenceKey.selectedTheme)
+        }
+    }
     @Published var captureState: CaptureState = .ready
     @Published var permissions: PermissionStatus = .mockGranted
     @Published var recentCaptures: [CaptureRecord] = []
@@ -87,7 +93,7 @@ final class AppModel: ObservableObject {
     private var lastHoverResolveAt: TimeInterval = 0
     private var lastHoverPoint: CGPoint?
     private var lastHoverTarget: CaptureTarget?
-    private var adjustedTargetSize: CGSize?
+    private var precisionSelectionState: PrecisionSelectionState?
     private let hoverResolveInterval: TimeInterval = 0.085
     private let fastHoverResolveInterval: TimeInterval = 0.045
     private let fastHoverDistance: CGFloat = 48
@@ -99,6 +105,11 @@ final class AppModel: ObservableObject {
            let mode = CaptureMode(rawValue: storedMode) {
             selectedMode = mode
         }
+        if let storedTheme = userDefaults.string(forKey: PreferenceKey.selectedTheme),
+           let theme = CueTheme(rawValue: storedTheme) {
+            selectedTheme = theme
+        }
+        CueColor.use(selectedTheme)
         migrateClipboardFirstDefaultsIfNeeded()
         if userDefaults.object(forKey: PreferenceKey.autoPasteToCodex) != nil {
             autoPasteToCodex = userDefaults.bool(forKey: PreferenceKey.autoPasteToCodex)
@@ -209,6 +220,8 @@ final class AppModel: ObservableObject {
             selectModeAndRevealControl(.area)
         case .selectScreenMode:
             selectModeAndRevealControl(.screen)
+        case .selectOCRMode:
+            selectModeAndRevealControl(.ocr)
         case .openSettings:
             openSettings()
         case .showOnboarding:
@@ -261,6 +274,24 @@ final class AppModel: ObservableObject {
         "\(widthResizeModifier.title) changes width. \(heightResizeModifier.title) changes height."
     }
 
+    var captureControlPresentation: CaptureControlPresentation {
+        switch captureState {
+        case .permissionNeeded(let kind):
+            return .permission(kind)
+        case .armed, .selectingArea, .capturing:
+            return .armed
+        case .copied, .pasteAttempted, .codexAppServerAccepted, .codexNotFocused:
+            if let selectedCapture {
+                return .captured(selectedCapture)
+            }
+            return .idle
+        case .failed(let reason):
+            return .failed(reason)
+        case .ready:
+            return .idle
+        }
+    }
+
     var lastCaptureSummary: String {
         guard let selectedCapture else {
             return "No PNG captured yet"
@@ -299,6 +330,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func cycleTheme() {
+        let themes = CueTheme.allCases
+        guard let currentIndex = themes.firstIndex(of: selectedTheme) else {
+            selectedTheme = .optic
+            return
+        }
+        selectedTheme = themes[(currentIndex + 1) % themes.count]
+    }
+
     func testCapture() {
         capture(at: currentTarget?.point ?? centerPointOfMainDisplay())
     }
@@ -306,32 +346,54 @@ final class AppModel: ObservableObject {
     func copyLastCapture() {
         guard let capture = selectedCapture, let pngData = historyStore.pngData(for: capture) else {
             withAnimation(MotionSpec.quick) {
-                captureState = .copyFallback(reason: "No PNG to copy yet")
+                captureState = .failed(reason: "No PNG to copy yet")
             }
             return
         }
 
         handoffService.copyToPasteboard(pngData: pngData, fileURL: historyStore.pngURL(for: capture))
         withAnimation(MotionSpec.quick) {
-            captureState = .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
+            captureState = .copied(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         }
     }
 
     func copyCapture(_ capture: CaptureRecord) {
         guard let pngData = historyStore.pngData(for: capture) else {
-            captureState = .copyFallback(reason: "Capture file missing")
+            captureState = .failed(reason: "Capture file missing")
             return
         }
 
         handoffService.copyToPasteboard(pngData: pngData, fileURL: historyStore.pngURL(for: capture))
         withAnimation(MotionSpec.quick) {
-            captureState = .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
+            captureState = .copied(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         }
+    }
+
+    func copyOCRText(_ capture: CaptureRecord) {
+        guard let text = capture.normalizedOCRText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            captureState = .failed(reason: "No OCR text found in this capture.")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        let copied = NSPasteboard.general.setString(text, forType: .string)
+        withAnimation(MotionSpec.quick) {
+            captureState = copied ? .copied(reason: "OCR text copied. Paste with Cmd+V.") : .failed(reason: "Could not copy OCR text.")
+        }
+    }
+
+    func copySelectedOCRText() {
+        guard let capture = selectedCapture else {
+            captureState = .failed(reason: "No capture selected.")
+            return
+        }
+
+        copyOCRText(capture)
     }
 
     func saveSelectedCaptureAs() {
         guard let capture = selectedCapture, let pngURL = historyStore.pngURL(for: capture) else {
-            captureState = .copyFallback(reason: "No PNG to save yet")
+            captureState = .failed(reason: "No PNG to save yet")
             return
         }
 
@@ -350,16 +412,16 @@ final class AppModel: ObservableObject {
                 try FileManager.default.removeItem(at: destinationURL)
             }
             try FileManager.default.copyItem(at: pngURL, to: destinationURL)
-            captureState = .copyFallback(reason: "PNG saved")
+            captureState = .copied(reason: "PNG saved")
         } catch {
             lastErrorMessage = error.localizedDescription
-            captureState = .copyFallback(reason: "Could not save PNG")
+            captureState = .failed(reason: "Could not save PNG")
         }
     }
 
     func revealCapture(_ capture: CaptureRecord) {
         guard let url = historyStore.pngURL(for: capture) else {
-            captureState = .copyFallback(reason: "Capture file missing")
+            captureState = .failed(reason: "Capture file missing")
             return
         }
 
@@ -402,7 +464,7 @@ final class AppModel: ObservableObject {
                 let message = "Could not create a saved PNG for Codex App Server test."
                 handoffStatusSummary = message
                 appServerDiagnosticSummary = message
-                captureState = .readyToDrag(reason: message)
+                captureState = .failed(reason: message)
                 lastErrorMessage = message
                 return
             }
@@ -691,6 +753,16 @@ final class AppModel: ObservableObject {
         permissionService.openSettings(for: kind)
     }
 
+    func dismissCaptureStatus() {
+        currentTarget = nil
+        resetHoverCache()
+        resetTargetAdjustment()
+        overlayController.hide()
+        withAnimation(MotionSpec.quick) {
+            captureState = permissions.screenRecordingGranted ? .ready : .permissionNeeded(.screenRecording)
+        }
+    }
+
     private func handleGestureEvent(_ event: GestureEvent) {
         refreshPermissions()
         if !event.isHighFrequencyMove {
@@ -713,6 +785,23 @@ final class AppModel: ObservableObject {
                 return
             }
 
+            if let precisionSelectionState {
+                let target = CaptureRectAdjuster.targetWithAdjustedRect(
+                    precisionSelectionState.baseTarget,
+                    centeredAt: precisionSelectionState.anchorPoint,
+                    size: precisionSelectionState.adjustedSize
+                )
+                lastHoverTarget = target
+                lastHoverPoint = point
+                lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
+                currentTarget = target
+                withAnimation(MotionSpec.navigationSpring) {
+                    captureState = .armed
+                }
+                overlayController.update(target: target, state: captureState)
+                return
+            }
+
             guard shouldResolveHoverTarget(at: point) else {
                 if let target = lastHoverTarget {
                     overlayController.update(target: target, state: captureState)
@@ -720,10 +809,7 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            var target = timedTarget(at: point, reason: "hover")
-            if let adjustedTargetSize {
-                target = CaptureRectAdjuster.targetWithAdjustedRect(target, centeredAt: point, size: adjustedTargetSize)
-            }
+            let target = timedTarget(at: point, reason: "hover")
             guard !shouldBlockOwnAppTarget(target) else {
                 currentTarget = nil
                 lastHoverTarget = nil
@@ -751,8 +837,26 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            let target = CaptureRectAdjuster.resizedTarget(baseTarget, centeredAt: point, deltaX: deltaX, deltaY: deltaY, axis: axis)
-            adjustedTargetSize = target.rect.size
+            let lockedState = precisionSelectionState ?? PrecisionSelectionState(
+                baseTarget: baseTarget,
+                anchorPoint: baseTarget.point,
+                adjustedSize: baseTarget.rect.size,
+                activeAxis: axis
+            )
+            let adjustedSize = CaptureRectAdjuster.adjustedSize(
+                from: lockedState.adjustedSize,
+                deltaX: deltaX,
+                deltaY: deltaY,
+                axis: axis,
+                screenFrame: lockedState.baseTarget.screenFrame
+            )
+            let nextPrecisionState = lockedState.updating(size: adjustedSize, axis: axis)
+            let target = CaptureRectAdjuster.targetWithAdjustedRect(
+                nextPrecisionState.baseTarget,
+                centeredAt: nextPrecisionState.anchorPoint,
+                size: nextPrecisionState.adjustedSize
+            )
+            precisionSelectionState = nextPrecisionState
             lastHoverTarget = target
             lastHoverPoint = point
             lastHoverResolveAt = ProcessInfo.processInfo.systemUptime
@@ -787,7 +891,7 @@ final class AppModel: ObservableObject {
                 currentTarget = nil
                 overlayController.hide()
                 withAnimation(MotionSpec.quick) {
-                    captureState = .copyFallback(reason: "Area was too small. Drag a larger rectangle.")
+                    captureState = .failed(reason: "Area was too small. Drag a larger rectangle.")
                 }
                 diagnostics.record("capture.area cancelled=tooSmall")
                 return
@@ -840,7 +944,7 @@ final class AppModel: ObservableObject {
             currentTarget = nil
             overlayController.hide()
             withAnimation(MotionSpec.quick) {
-                captureState = .copyFallback(reason: "Drag an area to capture it.")
+                captureState = .failed(reason: "Drag an area to capture it.")
             }
             diagnostics.record("capture.blocked areaRequiresDrag")
             return
@@ -853,7 +957,7 @@ final class AppModel: ObservableObject {
             overlayController.hide()
             showCapturePuck()
             withAnimation(MotionSpec.quick) {
-                captureState = .copyFallback(reason: "CueShot moved itself aside. Click the target again.")
+                captureState = .failed(reason: "CueShot moved itself aside. Click the target again.")
             }
             return
         }
@@ -865,11 +969,13 @@ final class AppModel: ObservableObject {
         diagnostics.record("capture.begin target=\(Int(target.rect.width))x\(Int(target.rect.height)) mode=\(selectedMode.rawValue)")
         diagnostics.record("capture.target rect=\(Int(target.rect.width))x\(Int(target.rect.height)) app=\(target.sourceAppName) role=\(target.axRole) confidence=\(target.confidence.rawValue)")
         currentTarget = target
+        let shouldRestoreCapturePuck = capturePuckVisible
 
         withAnimation(MotionSpec.captureSpring) {
             captureState = .capturing
         }
-        overlayController.update(target: target, state: captureState)
+        capturePuckController.hide()
+        overlayController.hide()
 
         Task { @MainActor in
             do {
@@ -910,19 +1016,27 @@ final class AppModel: ObservableObject {
                     overlayController.hide()
                 } else if case .codexAppServerAccepted = captureState {
                     overlayController.hide()
-                } else if case .readyToDrag = captureState {
+                } else if case .copied = captureState {
                     overlayController.hide()
-                } else if case .copyFallback = captureState {
+                } else if case .failed = captureState {
                     overlayController.hide()
+                }
+
+                if shouldRestoreCapturePuck {
+                    showCapturePuck()
                 }
             } catch {
                 lastErrorMessage = error.localizedDescription
                 diagnostics.record("capture.failed error=\(error.localizedDescription)")
                 withAnimation(MotionSpec.quick) {
-                    captureState = .copyFallback(reason: error.localizedDescription)
+                    captureState = .failed(reason: error.localizedDescription)
                 }
                 try? await Task.sleep(for: .milliseconds(900))
                 overlayController.hide()
+
+                if shouldRestoreCapturePuck {
+                    showCapturePuck()
+                }
             }
         }
     }
@@ -939,9 +1053,9 @@ final class AppModel: ObservableObject {
         case .codexAppServerAccepted:
             return .codexAppServerAccepted
         case .codexAppServerUnavailable, .codexAppServerFailed:
-            return .readyToDrag(reason: report.note)
+            return .copied(reason: report.note)
         case .copiedOnly:
-            return .readyToDrag(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
+            return .copied(reason: "PNG copied. Press Cmd+V in Codex or drag the preview.")
         case .pasteAttempted, .sentVerified:
             return .pasteAttempted
         case .clipboardWriteFailed,
@@ -949,7 +1063,7 @@ final class AppModel: ObservableObject {
              .codexFocusFailed,
              .codexPasteTargetUnavailable,
              .pasteEventBlocked:
-            return .copyFallback(reason: report.note)
+            return .failed(reason: report.note)
         }
     }
 
@@ -970,7 +1084,7 @@ final class AppModel: ObservableObject {
     }
 
     private func shouldBlockOwnAppTarget(_ target: CaptureTarget) -> Bool {
-        selectedMode != .selection && isCueShotTarget(target)
+        selectedMode != .selection && selectedMode != .ocr && isCueShotTarget(target)
     }
 
     private func shouldResolveHoverTarget(at point: CGPoint) -> Bool {
@@ -1003,7 +1117,7 @@ final class AppModel: ObservableObject {
     }
 
     private func resetTargetAdjustment() {
-        adjustedTargetSize = nil
+        precisionSelectionState = nil
     }
 
     private func selectModeAndRevealControl(_ mode: CaptureMode) {
@@ -1065,6 +1179,7 @@ final class AppModel: ObservableObject {
 
 private enum PreferenceKey {
     static let selectedMode = "selectedMode"
+    static let selectedTheme = "selectedTheme"
     static let autoPasteToCodex = "autoPasteToCodex"
     static let codexCLIPathOverride = "codexCLIPathOverride"
     static let showCaptureButtonAtLaunch = "showCaptureButtonAtLaunch"
@@ -1093,10 +1208,11 @@ private extension GestureEvent {
 
 enum CaptureMode: String, CaseIterable, Identifiable, Codable {
     case element
-    case selection
     case window
     case area
     case screen
+    case selection
+    case ocr
 
     var id: String { rawValue }
 
@@ -1107,6 +1223,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Window"
         case .area: "Area"
         case .screen: "Screen"
+        case .ocr: "OCR"
         }
     }
 
@@ -1117,6 +1234,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Window"
         case .area: "Area"
         case .screen: "Screen"
+        case .ocr: "OCR"
         }
     }
 
@@ -1127,6 +1245,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Click window"
         case .area: "Drag region"
         case .screen: "Click display"
+        case .ocr: "OCR capture"
         }
     }
 
@@ -1137,6 +1256,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Containing window capture."
         case .area: "Manual drag rectangle capture."
         case .screen: "Current display capture."
+        case .ocr: "Estimated region capture with OCR text extraction."
         }
     }
 
@@ -1147,6 +1267,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "macwindow"
         case .area: "selection.pin.in.out"
         case .screen: "display"
+        case .ocr: "text.viewfinder"
         }
     }
 
@@ -1157,6 +1278,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Use the floating control, then click inside the window."
         case .area: "Use the floating control, then drag the capture rectangle."
         case .screen: "Use the floating control, then click the display."
+        case .ocr: "Use the floating control, then click to OCR the estimated region."
         }
     }
 
@@ -1167,6 +1289,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Window"
         case .area: "Area"
         case .screen: "Screen"
+        case .ocr: "OCR"
         }
     }
 
@@ -1177,6 +1300,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Window"
         case .area: "Area"
         case .screen: "Screen"
+        case .ocr: "OCR"
         }
     }
 
@@ -1187,6 +1311,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Window click capture"
         case .area: "Drag region capture"
         case .screen: "Display click capture"
+        case .ocr: "Estimated text capture"
         }
     }
 
@@ -1197,6 +1322,7 @@ enum CaptureMode: String, CaseIterable, Identifiable, Codable {
         case .window: "Click window"
         case .area: "Drag capture area"
         case .screen: "Click display"
+        case .ocr: "Click estimated region"
         }
     }
 
@@ -1215,10 +1341,10 @@ enum CaptureState: Equatable {
     case capturing
     case pasteAttempted
     case codexAppServerAccepted
-    case readyToDrag(reason: String)
+    case copied(reason: String)
     case permissionNeeded(PermissionKind)
     case codexNotFocused
-    case copyFallback(reason: String)
+    case failed(reason: String)
 
     var label: String {
         switch self {
@@ -1228,10 +1354,10 @@ enum CaptureState: Equatable {
         case .capturing: "Capturing"
         case .pasteAttempted: "Paste Attempted"
         case .codexAppServerAccepted: "App Server Accepted"
-        case .readyToDrag: "Ready to Drag"
+        case .copied: "Copied"
         case .permissionNeeded(let kind): kind == .accessibility ? "Needs AX" : "Needs Screen"
         case .codexNotFocused: "Codex Not Focused"
-        case .copyFallback: "Fallback"
+        case .failed: "Failed"
         }
     }
 
@@ -1243,10 +1369,10 @@ enum CaptureState: Equatable {
         case .capturing: "Freezing the target rectangle."
         case .pasteAttempted: "Legacy paste attempt. Verify Codex attached it."
         case .codexAppServerAccepted: "A new Codex App Server thread accepted the image. Drag the PNG into visible Codex if it does not appear."
-        case .readyToDrag(let reason): reason
+        case .copied(let reason): reason
         case .permissionNeeded(let kind): kind.message
         case .codexNotFocused: "Capture copied. Focus Codex to paste."
-        case .copyFallback(let reason): reason
+        case .failed(let reason): reason
         }
     }
 
@@ -1256,6 +1382,14 @@ enum CaptureState: Equatable {
         default: false
         }
     }
+}
+
+enum CaptureControlPresentation: Equatable {
+    case idle
+    case armed
+    case captured(CaptureRecord)
+    case permission(PermissionKind)
+    case failed(String)
 }
 
 enum PermissionKind: Equatable {
@@ -1271,7 +1405,7 @@ enum PermissionKind: Equatable {
 
     var message: String {
         switch self {
-        case .accessibility: "CueShot needs Accessibility to detect the element under your cursor."
+        case .accessibility: "CueShot needs Accessibility for the capture listener and exact element bounds."
         case .screenRecording: "CueShot needs Screen Recording to capture visible pixels."
         }
     }
@@ -1309,6 +1443,33 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
     let fileSize: String
     let handoffStatus: String
     let pngRelativePath: String?
+    let recognizedText: String?
+
+    init(
+        id: UUID,
+        createdAt: Date,
+        mode: CaptureMode,
+        confidence: String,
+        sourceAppName: String,
+        axRole: String,
+        dimensions: String,
+        fileSize: String,
+        handoffStatus: String,
+        pngRelativePath: String? = nil,
+        recognizedText: String? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.mode = mode
+        self.confidence = confidence
+        self.sourceAppName = sourceAppName
+        self.axRole = axRole
+        self.dimensions = dimensions
+        self.fileSize = fileSize
+        self.handoffStatus = handoffStatus
+        self.pngRelativePath = pngRelativePath
+        self.recognizedText = recognizedText
+    }
 
     var displayHandoffStatus: String {
         switch handoffStatus {
@@ -1317,6 +1478,21 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
         default:
             handoffStatus
         }
+    }
+
+    var normalizedOCRText: String? {
+        guard let text = recognizedText else {
+            return nil
+        }
+
+        let normalized = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return normalized.isEmpty ? nil : normalized
     }
 
     static let samples: [CaptureRecord] = [
@@ -1337,7 +1513,8 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
             dimensions: dimensions,
             fileSize: fileSize,
             handoffStatus: handoffStatus,
-            pngRelativePath: path
+            pngRelativePath: path,
+            recognizedText: recognizedText
         )
     }
 
@@ -1352,7 +1529,24 @@ struct CaptureRecord: Identifiable, Codable, Equatable {
             dimensions: dimensions,
             fileSize: fileSize,
             handoffStatus: status,
-            pngRelativePath: pngRelativePath
+            pngRelativePath: pngRelativePath,
+            recognizedText: recognizedText
+        )
+    }
+
+    func withNormalizedOCRText(_ text: String?) -> CaptureRecord {
+        CaptureRecord(
+            id: id,
+            createdAt: createdAt,
+            mode: mode,
+            confidence: confidence,
+            sourceAppName: sourceAppName,
+            axRole: axRole,
+            dimensions: dimensions,
+            fileSize: fileSize,
+            handoffStatus: handoffStatus,
+            pngRelativePath: pngRelativePath,
+            recognizedText: text
         )
     }
 }

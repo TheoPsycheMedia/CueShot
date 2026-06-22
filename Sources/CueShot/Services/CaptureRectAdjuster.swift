@@ -2,8 +2,11 @@ import CoreGraphics
 
 struct CaptureRectAdjuster {
     private static let minimumSize = CGSize(width: 28, height: 28)
-    private static let lineScrollScale: CGFloat = 7
-    private static let preciseScrollScale: CGFloat = 28
+    private static let lineScrollScale: CGFloat = 4
+    private static let preciseScrollScale: CGFloat = 10
+    private static let maximumLineDelta: CGFloat = 3
+    private static let maximumPreciseDelta: CGFloat = 0.9
+    private static let maximumStep: CGFloat = 18
 
     static func resizedTarget(
         _ target: CaptureTarget,
@@ -50,8 +53,8 @@ struct CaptureRectAdjuster {
         axis: CaptureResizeAxis,
         screenFrame: CGRect
     ) -> CGSize {
-        let horizontalStep = scrollStep(deltaX)
-        let verticalStep = scrollStep(deltaY)
+        let horizontalStep = scrollStep(for: deltaX)
+        let verticalStep = scrollStep(for: deltaY)
         let dominantStep = abs(verticalStep) >= abs(horizontalStep) ? verticalStep : horizontalStep
         var width = currentSize.width
         var height = currentSize.height
@@ -81,10 +84,16 @@ struct CaptureRectAdjuster {
         return CGRect(x: originX, y: originY, width: width, height: height).integral
     }
 
-    private static func scrollStep(_ delta: CGFloat) -> CGFloat {
+    static func scrollStep(for delta: CGFloat) -> CGFloat {
         guard delta != 0 else { return 0 }
-        let scale = abs(delta) < 1 ? preciseScrollScale : lineScrollScale
-        return delta * scale
+        let isPrecise = abs(delta) < 1
+        let maximumDelta = isPrecise ? maximumPreciseDelta : maximumLineDelta
+        let scale = isPrecise ? preciseScrollScale : lineScrollScale
+        let clampedDelta = clamp(delta, min: -maximumDelta, max: maximumDelta)
+        let scaledStep = abs(clampedDelta * scale)
+        let magnitude = clamp(scaledStep, min: 1, max: maximumStep)
+
+        return delta > 0 ? magnitude : -magnitude
     }
 
     private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {

@@ -25,7 +25,7 @@ struct SettingsView: View {
             LinearGradient(
                 colors: [
                     CueColor.graphite,
-                    Color(red: 0.12, green: 0.13, blue: 0.13),
+                    CueColor.glow.opacity(0.20),
                     CueColor.surfaceBase
                 ],
                 startPoint: .topLeading,
@@ -36,6 +36,23 @@ struct SettingsView: View {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsHeader()
+
+                    SettingsSection(
+                        title: "Appearance",
+                        detail: "Change CueShot's color mood across the capture control, reticle, overlay, and settings."
+                    ) {
+                        ThemeMoodPicker(model: model)
+
+                        Button {
+                            model.cycleTheme()
+                        } label: {
+                            Label("Change Color Mood", systemImage: "paintpalette")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PressableMotionStyle())
+                        .cueTintedGlass(CueColor.reticle.opacity(0.16), cornerRadius: 12, interactive: true)
+                        .help("Cycle through CueShot color moods")
+                    }
 
                     SettingsSection(
                         title: "Capture",
@@ -194,7 +211,7 @@ struct SettingsView: View {
                         title: "Privacy",
                         detail: "CueShot captures visible pixels locally and uses Accessibility for exact element bounds."
                     ) {
-                        PermissionSettingsRow(title: "Element detection", detail: "Uses Accessibility", granted: model.permissions.accessibilityGranted) {
+                        PermissionSettingsRow(title: "Capture listener", detail: "Accessibility required", granted: model.permissions.accessibilityGranted) {
                             model.openPermissionSettings(.accessibility)
                         }
                         PermissionSettingsRow(title: "Screen capture", detail: "Uses Screen Recording", granted: model.permissions.screenRecordingGranted) {
@@ -246,6 +263,85 @@ struct SettingsView: View {
         } message: {
             Text("This removes saved CueShot PNGs and the local history manifest.")
         }
+    }
+}
+
+private struct ThemeMoodPicker: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                ThemeSwatch(theme: model.selectedTheme, size: 38)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.selectedTheme.title)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(model.selectedTheme.detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Picker("Color mood", selection: $model.selectedTheme) {
+                    ForEach(CueTheme.allCases) { theme in
+                        Text(theme.title)
+                            .tag(theme)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 150)
+            }
+
+            HStack(spacing: 8) {
+                ForEach(CueTheme.allCases) { theme in
+                    Button {
+                        model.selectedTheme = theme
+                    } label: {
+                        VStack(spacing: 5) {
+                            ThemeSwatch(theme: theme, size: 30)
+                            Text(theme.title)
+                                .font(.system(size: 9, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(PressableMotionStyle())
+                    .background(.white.opacity(model.selectedTheme == theme ? 0.10 : 0.045), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder((model.selectedTheme == theme ? theme.primary : .white).opacity(model.selectedTheme == theme ? 0.45 : 0.08), lineWidth: 1)
+                    }
+                    .accessibilityLabel("\(theme.title) color mood")
+                    .accessibilityAddTraits(model.selectedTheme == theme ? [.isSelected] : [])
+                }
+            }
+        }
+    }
+}
+
+private struct ThemeSwatch: View {
+    let theme: CueTheme
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(theme.primary)
+                .frame(width: size, height: size)
+                .shadow(color: theme.glow.opacity(0.35), radius: 8, y: 2)
+            Circle()
+                .fill(theme.secondary)
+                .frame(width: size * 0.48, height: size * 0.48)
+                .offset(x: size * 0.22, y: -size * 0.16)
+            Circle()
+                .strokeBorder(theme.pearl.opacity(0.72), lineWidth: 1)
+                .frame(width: size, height: size)
+        }
+        .accessibilityHidden(true)
     }
 }
 

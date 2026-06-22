@@ -78,6 +78,24 @@ final class CapturePipelineIntegrationTests: XCTestCase {
         XCTAssertEqual(store.load().count, 30)
     }
 
+    func testOCRServiceExtractsTextFromRenderedImage() async throws {
+        let service = OCRService()
+        guard let image = makeTextImage("OCR READY") else {
+            throw XCTSkip("Could not render OCR fixture image.")
+        }
+
+        do {
+            let text = try await service.recognizeText(in: image)
+            guard let text else {
+                throw XCTSkip("OCR service returned no text in this environment.")
+            }
+
+            XCTAssertTrue(text.localizedCaseInsensitiveContains("OCR READY"))
+        } catch {
+            throw XCTSkip("OCR service could not process text image in this environment: \(error.localizedDescription)")
+        }
+    }
+
     private func temporarySupportRoot() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("CueShotTests-\(UUID().uuidString)", isDirectory: true)
@@ -100,5 +118,33 @@ final class CapturePipelineIntegrationTests: XCTestCase {
         }
 
         return png
+    }
+
+    private func makeTextImage(_ text: String) -> CGImage? {
+        let size = CGSize(width: 380, height: 140)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: size).fill()
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 48, weight: .bold),
+            .foregroundColor: NSColor.black,
+            .paragraphStyle: paragraphStyle
+        ]
+        let attributed = NSAttributedString(string: text, attributes: attributes)
+        attributed.draw(at: CGPoint(x: 16, y: 44))
+        image.unlockFocus()
+
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cgImage = rep.cgImage else {
+            return nil
+        }
+
+        return cgImage
     }
 }

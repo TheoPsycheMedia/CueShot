@@ -22,7 +22,7 @@ This avoids the feeling that the app is silently watching the screen.
 - `OverlayWindowController`: visual targeting and drag-region overlay.
 - `GlobalGestureMonitor`: event monitor and optional global gesture handling.
 - `AXHitTestService`: Accessibility hit testing for exact element and window bounds.
-- `CaptureService`: ScreenCaptureKit image capture and PNG encoding.
+- `CaptureService`: capture planning, ScreenCaptureKit image capture, and PNG encoding.
 - `CaptureHistoryStore`: local history records and filesystem storage.
 - `CodexAppServerClient`: JSON-RPC client for `codex app-server` local-image turns.
 - `CodexHandoffService`: clipboard-first handoff reporting, with optional experimental Codex App Server image delivery.
@@ -53,3 +53,7 @@ Live probing on Codex CLI `0.141.0` shows this creates an App Server-backed thre
 ## Privacy Model
 
 Captures, logs, and history stay local. There is no default upload path, analytics SDK, or remote telemetry.
+
+## Capture Strategy
+
+CueShot normalizes the target rect first, then chooses the best available capture provider for that rect. The preferred path uses ScreenCaptureKit with a display filter and a source rect so CueShot can hide the cursor and exclude its own app windows from third-party captures. Older compatibility paths fall back to region capture or `CGWindowListCreateImage` only when the filtered ScreenCaptureKit plan is unavailable.

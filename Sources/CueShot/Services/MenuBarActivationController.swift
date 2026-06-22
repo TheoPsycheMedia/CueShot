@@ -1,21 +1,29 @@
 import AppKit
+import Combine
 
 @MainActor
 final class MenuBarActivationController: NSObject {
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private weak var model: AppModel?
+    private var cancellables: Set<AnyCancellable> = []
 
     func configure(model: AppModel) {
         self.model = model
+        cancellables.removeAll()
 
         guard let button = statusItem.button else { return }
         button.image = statusImage()
-        button.imagePosition = .imageOnly
-        button.toolTip = "CueShot Capture"
+        button.imagePosition = .imageLeft
         button.target = self
         button.action = #selector(statusItemPressed(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        button.setAccessibilityLabel("CueShot Capture")
+        updateStatusButton()
+
+        model.$captureState
+            .sink { [weak self] _ in
+                self?.updateStatusButton()
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func statusItemPressed(_ sender: NSStatusBarButton) {
@@ -93,6 +101,14 @@ final class MenuBarActivationController: NSObject {
         return item
     }
 
+    private func updateStatusButton() {
+        guard let button = statusItem.button else { return }
+        let label = model?.captureState.menuBarLabel ?? "Ready"
+        button.title = " \(label)"
+        button.toolTip = "CueShot \(label)"
+        button.setAccessibilityLabel("CueShot \(label)")
+    }
+
     private func statusImage() -> NSImage? {
         if let image = NSImage(systemSymbolName: "scope", accessibilityDescription: "CueShot Capture") {
             image.isTemplate = true
@@ -100,5 +116,26 @@ final class MenuBarActivationController: NSObject {
         }
 
         return NSImage(named: NSImage.touchBarRecordStartTemplateName)
+    }
+}
+
+private extension CaptureState {
+    var menuBarLabel: String {
+        switch self {
+        case .permissionNeeded(let kind):
+            kind == .accessibility ? "Needs AX" : "Needs Screen"
+        case .copied:
+            "Copied"
+        case .failed:
+            "Failed"
+        case .pasteAttempted:
+            "Paste Attempted"
+        case .codexAppServerAccepted:
+            "App Server"
+        case .codexNotFocused:
+            "Needs Codex"
+        default:
+            label
+        }
     }
 }

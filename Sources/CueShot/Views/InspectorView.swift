@@ -5,7 +5,7 @@ struct InspectorView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 InspectorSection(title: "Output") {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("Copy PNG to Clipboard", systemImage: "doc.on.clipboard")
@@ -24,27 +24,13 @@ struct InspectorView: View {
                     }
                 }
 
-                InspectorSection(title: "Advanced") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: $model.autoPasteToCodex) {
-                            Label("Try App Server after copying", systemImage: "sparkles")
-                        }
-                        .toggleStyle(.switch)
-
-                        Text("Experimental. App Server may create a new thread instead of filling the visible Codex composer.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
                 InspectorSection(title: "Permissions") {
                     VStack(alignment: .leading, spacing: 8) {
                         PermissionRow(
-                            title: "Element detection",
-                            detail: "Uses Accessibility",
+                            title: "Capture listener",
+                            detail: "Accessibility required",
                             granted: model.permissions.accessibilityGranted,
-                            required: false
+                            required: true
                         ) {
                             model.openPermissionSettings(.accessibility)
                         }
@@ -68,6 +54,15 @@ struct InspectorView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .truncationMode(.middle)
+                            if let ocrText = capture.normalizedOCRText {
+                                Divider().opacity(0.35)
+                                Text("OCR Text")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text(ocrText)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     } else {
                         Text("Captured PNGs will appear here for copy, save, reveal, or export.")
@@ -109,11 +104,25 @@ struct InspectorView: View {
                     }
                 }
 
+                InspectorSection(title: "Advanced") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $model.autoPasteToCodex) {
+                            Label("Try App Server after copying", systemImage: "sparkles")
+                        }
+                        .toggleStyle(.switch)
+
+                        Text("Experimental. Clipboard and drag remain the reliable handoff.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
             }
-            .padding(12)
+            .padding(10)
         }
         .frame(maxHeight: .infinity)
-        .cueGlass(cornerRadius: 26)
+        .cueGlass(cornerRadius: 22)
     }
 }
 
@@ -129,10 +138,10 @@ private struct InspectorSection<Content: View>: View {
             content()
         }
         .font(.system(size: 12))
-        .padding(10)
-        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .padding(9)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         }
     }
@@ -166,6 +175,11 @@ private struct CaptureActionsRow: View {
         HStack(spacing: 7) {
             Button("Copy") {
                 model.copyCapture(capture)
+            }
+            if capture.normalizedOCRText != nil {
+                Button("Copy OCR") {
+                    model.copyOCRText(capture)
+                }
             }
             Button("Save") {
                 model.saveSelectedCaptureAs()

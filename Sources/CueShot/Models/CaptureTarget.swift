@@ -41,11 +41,6 @@ enum GestureEvent: Equatable {
     case tripleClick(point: CGPoint)
 }
 
-struct CaptureResult {
-    let record: CaptureRecord
-    let pngData: Data
-}
-
 enum CaptureResizeAxis: Equatable, Sendable {
     case both
     case width
@@ -94,5 +89,21 @@ struct CaptureResizeBindings: Equatable, Sendable {
             return .height
         }
         return .both
+    }
+}
+
+struct PrecisionSelectionState: Equatable {
+    let baseTarget: CaptureTarget
+    let anchorPoint: CGPoint
+    let adjustedSize: CGSize
+    let activeAxis: CaptureResizeAxis
+
+    func updating(size: CGSize, axis: CaptureResizeAxis) -> PrecisionSelectionState {
+        PrecisionSelectionState(
+            baseTarget: baseTarget,
+            anchorPoint: anchorPoint,
+            adjustedSize: size,
+            activeAxis: axis
+        )
     }
 }
