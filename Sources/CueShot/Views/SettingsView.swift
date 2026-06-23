@@ -71,6 +71,13 @@ struct SettingsView: View {
 
                         Toggle("Show floating control when CueShot opens", isOn: $model.showCaptureButtonAtLaunch)
 
+                        Toggle("Hide Dock icon when menu bar item is active", isOn: $model.hideDockIconWhenMenuBarActive)
+
+                        Text("When enabled, CueShot stays available from the top menu bar and does not keep a Dock icon visible.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         Toggle("Launch CueShot at login", isOn: Binding(
                             get: { model.launchAtLoginEnabled },
                             set: { model.setLaunchAtLogin($0) }

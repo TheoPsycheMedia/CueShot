@@ -408,6 +408,117 @@ final class ModeAndOnboardingTests: XCTestCase {
     }
 
     @MainActor
+    func testDockIconPreferencePersists() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        XCTAssertFalse(model.hideDockIconWhenMenuBarActive)
+
+        model.hideDockIconWhenMenuBarActive = true
+
+        let reloaded = AppModel(userDefaults: defaults)
+        XCTAssertTrue(reloaded.hideDockIconWhenMenuBarActive)
+        XCTAssertTrue(defaults.bool(forKey: "hideDockIconWhenMenuBarActive"))
+
+        model.hideDockIconWhenMenuBarActive = false
+    }
+
+    @MainActor
+    func testOnboardingCannotCompleteWithoutRequiredPermissions() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        model.permissions = PermissionStatus(
+            accessibilityGranted: false,
+            screenRecordingGranted: false,
+            automationStatus: .granted
+        )
+
+        model.completeOnboarding()
+
+        XCTAssertFalse(model.hasCompletedOnboarding)
+        XCTAssertTrue(model.showOnboarding)
+        XCTAssertEqual(model.captureState, .permissionNeeded(.screenRecording))
+        XCTAssertTrue(model.lastErrorMessage?.contains("Screen Recording and Accessibility") == true)
+        XCTAssertFalse(defaults.bool(forKey: "hasCompletedOnboarding"))
+    }
+
+    @MainActor
+    func testOnboardingCanCompleteWithoutOptionalAutomation() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        model.permissions = PermissionStatus(
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            automationStatus: .denied
+        )
+
+        model.completeOnboarding()
+
+        XCTAssertTrue(model.hasCompletedOnboarding)
+        XCTAssertFalse(model.showOnboarding)
+        XCTAssertTrue(defaults.bool(forKey: "hasCompletedOnboarding"))
+    }
+
+    @MainActor
+    func testDismissingIncompleteOnboardingDoesNotPersistCompletion() {
+        let suiteName = "CueShotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let model = AppModel(userDefaults: defaults)
+        model.permissions = PermissionStatus(
+            accessibilityGranted: false,
+            screenRecordingGranted: true,
+            automationStatus: .notDetermined
+        )
+
+        model.dismissOnboardingForNow()
+
+        XCTAssertFalse(model.hasCompletedOnboarding)
+        XCTAssertFalse(model.showOnboarding)
+        XCTAssertFalse(defaults.bool(forKey: "hasCompletedOnboarding"))
+
+        let nextLaunch = AppModel(userDefaults: defaults)
+        XCTAssertTrue(nextLaunch.showOnboarding)
+    }
+
+    func testPermissionStatusSeparatesRequiredAndOptionalPermissions() {
+        let missingRequired = PermissionStatus(
+            accessibilityGranted: false,
+            screenRecordingGranted: false,
+            automationStatus: .granted
+        )
+        XCTAssertFalse(missingRequired.capturePermissionsGranted)
+        XCTAssertEqual(missingRequired.missingRequiredKinds, [.screenRecording, .accessibility])
+        XCTAssertEqual(missingRequired.firstMissingRequiredKind, .screenRecording)
+
+        let optionalAutomationMissing = PermissionStatus(
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            automationStatus: .denied
+        )
+        XCTAssertTrue(optionalAutomationMissing.capturePermissionsGranted)
+        XCTAssertTrue(optionalAutomationMissing.missingRequiredKinds.isEmpty)
+        XCTAssertFalse(optionalAutomationMissing.automationGranted)
+    }
+
+    @MainActor
     func testChangingModeWhileArmedReturnsToReady() {
         let suiteName = "CueShotTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

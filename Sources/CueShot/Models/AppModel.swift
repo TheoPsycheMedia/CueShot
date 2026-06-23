@@ -38,6 +38,12 @@ final class AppModel: ObservableObject {
             userDefaults.set(showCaptureButtonAtLaunch, forKey: PreferenceKey.showCaptureButtonAtLaunch)
         }
     }
+    @Published var hideDockIconWhenMenuBarActive = false {
+        didSet {
+            userDefaults.set(hideDockIconWhenMenuBarActive, forKey: PreferenceKey.hideDockIconWhenMenuBarActive)
+            applyActivationPolicy()
+        }
+    }
     @Published var fileNameTemplate = "CueShot-{app}-{mode}-{date}" {
         didSet {
             userDefaults.set(fileNameTemplate, forKey: PreferenceKey.fileNameTemplate)
@@ -119,6 +125,9 @@ final class AppModel: ObservableObject {
         }
         if userDefaults.object(forKey: PreferenceKey.showCaptureButtonAtLaunch) != nil {
             showCaptureButtonAtLaunch = userDefaults.bool(forKey: PreferenceKey.showCaptureButtonAtLaunch)
+        }
+        if userDefaults.object(forKey: PreferenceKey.hideDockIconWhenMenuBarActive) != nil {
+            hideDockIconWhenMenuBarActive = userDefaults.bool(forKey: PreferenceKey.hideDockIconWhenMenuBarActive)
         }
         if let storedTemplate = userDefaults.string(forKey: PreferenceKey.fileNameTemplate),
            !storedTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -550,9 +559,19 @@ final class AppModel: ObservableObject {
     }
 
     func openMainWindow() {
-        NSApp.setActivationPolicy(.regular)
+        applyActivationPolicy()
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows.first { $0.title.contains("CueShot") }?.makeKeyAndOrderFront(nil)
+    }
+
+    func applyActivationPolicy() {
+        let policy: NSApplication.ActivationPolicy = hideDockIconWhenMenuBarActive ? .accessory : .regular
+        guard let app = NSApp else {
+            diagnostics.record("app.activationPolicy skipped noApplication")
+            return
+        }
+        app.setActivationPolicy(policy)
+        diagnostics.record("app.activationPolicy \(hideDockIconWhenMenuBarActive ? "accessory" : "regular")")
     }
 
     func openSettings() {
@@ -566,8 +585,34 @@ final class AppModel: ObservableObject {
         showOnboardingAgain()
     }
 
+    func presentInstallationOnboardingIfNeeded() {
+        guard !hasCompletedOnboarding else { return }
+        hideCapturePuck()
+        openMainWindow()
+        refreshPermissions()
+        withAnimation(MotionSpec.captureSpring) {
+            showOnboarding = true
+        }
+    }
+
+    func closeOnboarding() {
+        if permissions.capturePermissionsGranted {
+            completeOnboarding()
+        } else {
+            dismissOnboardingForNow()
+        }
+    }
+
     func completeOnboarding(startCapture: Bool = false) {
+        guard permissions.capturePermissionsGranted else {
+            let kind = permissions.firstMissingRequiredKind ?? .screenRecording
+            captureState = .permissionNeeded(kind)
+            lastErrorMessage = "Grant Screen Recording and Accessibility before finishing CueShot setup."
+            return
+        }
+
         hasCompletedOnboarding = true
+        lastErrorMessage = nil
         withAnimation(MotionSpec.captureSpring) {
             showOnboarding = false
         }
@@ -575,6 +620,22 @@ final class AppModel: ObservableObject {
         if startCapture {
             showCapturePuck()
         }
+    }
+
+    func dismissOnboardingForNow() {
+        hideCapturePuck()
+        if !permissions.capturePermissionsGranted {
+            lastErrorMessage = "CueShot setup is incomplete. Permission onboarding will appear again on the next launch."
+        }
+        withAnimation(MotionSpec.captureSpring) {
+            showOnboarding = false
+        }
+    }
+
+    func openNextRequiredPermission() {
+        refreshPermissions()
+        guard let kind = permissions.firstMissingRequiredKind else { return }
+        openPermissionSettings(kind)
     }
 
     func showOnboardingAgain() {
@@ -633,6 +694,12 @@ final class AppModel: ObservableObject {
         capturePuckVisible = false
         capturePuckController.hide()
         diagnostics.record("capturePuck.hide visible=false")
+    }
+
+    func hideToMenuBar() {
+        hideCapturePuck()
+        parkMainWindowsForCapture()
+        diagnostics.record("app.hideToMenuBar")
     }
 
     func toggleCapturePuck() {
@@ -1208,6 +1275,7 @@ private enum PreferenceKey {
     static let autoPasteToCodex = "autoPasteToCodex"
     static let codexCLIPathOverride = "codexCLIPathOverride"
     static let showCaptureButtonAtLaunch = "showCaptureButtonAtLaunch"
+    static let hideDockIconWhenMenuBarActive = "hideDockIconWhenMenuBarActive"
     static let fileNameTemplate = "fileNameTemplate"
     static let widthResizeModifier = "widthResizeModifier"
     static let heightResizeModifier = "heightResizeModifier"
@@ -1435,6 +1503,37 @@ enum PermissionKind: Equatable {
         }
     }
 
+    var onboardingDetail: String {
+        switch self {
+        case .accessibility: "Lets CueShot follow your click, read exposed element and window bounds, and keep the floating control responsive."
+        case .screenRecording: "Lets CueShot capture the visible pixels you selected. Required for screenshots and OCR."
+        case .automation: "Optional. The button first asks System Events for permission, then opens the Automation pane so CueShot appears in the list."
+        }
+    }
+
+    var onboardingActionTitle: String {
+        switch self {
+        case .accessibility: "Open Accessibility"
+        case .screenRecording: "Open Screen Recording"
+        case .automation: "Enable Automation"
+        }
+    }
+
+    var onboardingSystemImage: String {
+        switch self {
+        case .accessibility: "cursorarrow.motionlines"
+        case .screenRecording: "rectangle.on.rectangle"
+        case .automation: "arrow.triangle.2.circlepath"
+        }
+    }
+
+    var isRequiredForCapture: Bool {
+        switch self {
+        case .accessibility, .screenRecording: true
+        case .automation: false
+        }
+    }
+
     var message: String {
         switch self {
         case .accessibility: "CueShot needs Accessibility for the capture listener and exact element bounds."
@@ -1489,6 +1588,36 @@ struct PermissionStatus: Equatable {
 
     var automationGranted: Bool {
         automationStatus.isGranted
+    }
+
+    var capturePermissionsGranted: Bool {
+        accessibilityGranted && screenRecordingGranted
+    }
+
+    var missingRequiredKinds: [PermissionKind] {
+        var kinds: [PermissionKind] = []
+        if !screenRecordingGranted {
+            kinds.append(.screenRecording)
+        }
+        if !accessibilityGranted {
+            kinds.append(.accessibility)
+        }
+        return kinds
+    }
+
+    var firstMissingRequiredKind: PermissionKind? {
+        missingRequiredKinds.first
+    }
+
+    func isGranted(_ kind: PermissionKind) -> Bool {
+        switch kind {
+        case .accessibility:
+            accessibilityGranted
+        case .screenRecording:
+            screenRecordingGranted
+        case .automation:
+            automationGranted
+        }
     }
 
     static let mockGranted = PermissionStatus(accessibilityGranted: true, screenRecordingGranted: true, automationStatus: .granted)

@@ -23,7 +23,13 @@ struct PermissionService {
     }
 
     func requestAutomationPrompt() {
-        _ = automationPermissionStatus(prompt: true)
+        guard automationPermissionStatus(prompt: false) != .granted else {
+            return
+        }
+
+        if !triggerSystemEventsAutomationPrompt() {
+            _ = automationPermissionStatus(prompt: true)
+        }
     }
 
     func openSettings(for kind: PermissionKind) {
@@ -70,4 +76,22 @@ struct PermissionService {
             return .unknown
         }
     }
+
+    private func triggerSystemEventsAutomationPrompt() -> Bool {
+        guard let appleScript = NSAppleScript(source: SystemEventsAutomationConsentScript.source) else {
+            return false
+        }
+
+        var error: NSDictionary?
+        _ = appleScript.executeAndReturnError(&error)
+        return error == nil
+    }
+}
+
+enum SystemEventsAutomationConsentScript {
+    static let source = """
+    tell application "System Events"
+        return count of processes
+    end tell
+    """
 }

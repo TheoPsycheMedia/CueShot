@@ -184,8 +184,8 @@ private struct PuckUtilityMenu: View {
                 }
             }
             Divider()
-            Button("Hide Button") {
-                model.hideCapturePuck()
+            Button("Hide to Menu Bar") {
+                model.hideToMenuBar()
             }
             Button("Open CueShot") {
                 model.openMainWindow()
@@ -255,11 +255,32 @@ private struct PuckIdleBar: View {
                 .accessibilityIdentifier("CapturePuckCaptureButton")
                 .buttonStyle(PressableMotionStyle())
                 .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 12, interactive: true)
+                PuckHideButton(model: model)
                 PuckUtilityMenu(model: model)
             }
 
             PuckModePicker(model: model)
         }
+    }
+}
+
+private struct PuckHideButton: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Button {
+            model.hideToMenuBar()
+        } label: {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 30, height: 28)
+        }
+        .accessibilityIdentifier("CapturePuckHideButton")
+        .accessibilityLabel("Hide to Menu Bar")
+        .accessibilityHint("Hides CueShot windows and leaves the menu bar item available.")
+        .help("Hide to Menu Bar")
+        .buttonStyle(PressableMotionStyle())
+        .cueGlass(cornerRadius: 12, interactive: true)
     }
 }
 

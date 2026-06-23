@@ -38,7 +38,8 @@ This repository contains a native SwiftUI macOS MVP:
 - Clipboard PNG/file URL handoff by default: capture, preview, switch to Codex, then press Cmd+V or drag the PNG.
 - Upgrade-safe clipboard-first behavior: older builds that had automatic Codex handoff enabled are migrated back to clipboard-first once; users can re-enable legacy Cmd+V handoff from Advanced settings if they explicitly want to test it.
 - Optional legacy visible-composer handoff: CueShot can focus Codex, focus a likely composer text area through Accessibility, fall back to clicking the visible lower composer area, and post Cmd+V after copying, but attachment receipt still requires visual confirmation.
-- First-run onboarding, Settings, capture history, Save As, reveal history, clear history, and diagnostics logging.
+- First-launch permission onboarding, Settings, capture history, Save As, reveal history, clear history, and diagnostics logging.
+- Optional menu-bar-only presentation: the floating control can tuck CueShot away while keeping the top menu bar item active, and Settings can hide the Dock icon.
 
 Framer Motion is a React/web animation library, so it is not used as a runtime dependency inside the native app. CueShot mirrors that interaction style with native SwiftUI motion primitives.
 
@@ -83,9 +84,11 @@ Set `CUESHOT_VERSION=0.1.0` to control the generated `dist/CueShot-0.1.0.dmg` fi
 
 CueShot needs macOS Privacy grants for the app bundle:
 
-- Accessibility: one-shot capture activation, Accessibility target bounds, and local event automation.
-- Screen Recording: visible pixel capture.
-- Automation/System Events: optional visible paste handoff that copies first, focuses the real Codex desktop app, clicks the visible lower composer area when needed, and triggers Edit > Paste. If the paste attempt fails or Codex does not attach the PNG, CueShot still keeps the PNG copied, previewed, and saved for manual Cmd+V or drag/drop.
+- Screen Recording: required for visible pixel capture, screenshots, and OCR.
+- Accessibility: required for one-shot capture activation, Accessibility target bounds, and local event automation.
+- Automation/System Events: optional visible paste handoff that copies first, focuses the real Codex desktop app, clicks the visible lower composer area when needed, and triggers Edit > Paste. CueShot triggers a harmless System Events request before opening the Automation pane so macOS creates the CueShot -> System Events permission row. If the paste attempt fails or Codex does not attach the PNG, CueShot still keeps the PNG copied, previewed, and saved for manual Cmd+V or drag/drop.
+
+On a new install, CueShot brings the first-launch setup window forward and keeps the setup incomplete until Screen Recording and Accessibility are granted. macOS does not let apps silently grant these permissions or run automatically when a DMG is copied; the guided setup starts when the user launches CueShot.
 
 ## Codex Flow
 

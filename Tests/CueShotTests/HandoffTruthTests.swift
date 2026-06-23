@@ -172,6 +172,16 @@ final class HandoffTruthTests: XCTestCase {
         XCTAssertTrue(source.contains(#"tell process "Codex \"Beta\"\\Helper""#))
     }
 
+    func testSystemEventsAutomationConsentScriptIsParseable() throws {
+        let source = SystemEventsAutomationConsentScript.source
+        let script = try XCTUnwrap(NSAppleScript(source: source))
+        var error: NSDictionary?
+
+        XCTAssertTrue(script.compileAndReturnError(&error), "\(error ?? [:])")
+        XCTAssertTrue(source.contains("System Events"))
+        XCTAssertTrue(source.contains("count of processes"))
+    }
+
     func testAppleScriptActivationCommandIsParseable() throws {
         let source = CodexActivationScript.source(processName: "Codex")
         let script = try XCTUnwrap(NSAppleScript(source: source))

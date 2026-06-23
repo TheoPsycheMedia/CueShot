@@ -26,8 +26,14 @@ This avoids the feeling that the app is silently watching the screen.
 - `CaptureHistoryStore`: local history records and filesystem storage.
 - `CodexAppServerClient`: JSON-RPC client for `codex app-server` local-image turns retained for diagnostics and future protocol work.
 - `CodexHandoffService`: clipboard-first handoff reporting, with optional legacy visible-composer Cmd+V delivery that focuses a likely Codex composer through Accessibility or clicks the visible lower composer area before pasting.
-- `PermissionService`: macOS Accessibility and Screen Recording status checks.
+- `PermissionService`: macOS Accessibility, Screen Recording, and Automation/System Events status checks.
 - `DiagnosticsLogger`: local event log for troubleshooting.
+
+## Permission Onboarding
+
+CueShot treats first-launch setup as the install-time permission experience. macOS does not let a copied DMG app run automatically or silently grant TCC permissions, so CueShot presents onboarding when the app is first launched after install. Screen Recording and Accessibility are required before onboarding can be completed. Automation/System Events is shown as optional because it only powers the advanced visible Codex paste handoff.
+
+If required permissions are missing, closing onboarding hides it for the current session but does not persist completion, so setup appears again on the next launch. The onboarding view refreshes permission status while visible and exposes direct buttons for each relevant macOS privacy pane. The Automation button first sends a harmless `System Events` AppleScript query so macOS creates the CueShot -> System Events row, then opens the Automation pane.
 
 ## Accuracy Model
 

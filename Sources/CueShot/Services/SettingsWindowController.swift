@@ -17,7 +17,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             window = makeWindow(model: model)
         }
 
-        NSApp.setActivationPolicy(.regular)
+        model.applyActivationPolicy()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

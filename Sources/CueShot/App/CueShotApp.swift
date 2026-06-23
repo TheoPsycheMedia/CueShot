@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appModel = CueShotAppEnvironment.model
         model = appModel
         DiagnosticsLogger().record("app.launch modelReady showAtLaunch=\(appModel.showCaptureButtonAtLaunch)")
-        NSApp.setActivationPolicy(.regular)
+        appModel.applyActivationPolicy()
         NSApp.appearance = NSAppearance(named: .darkAqua)
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
@@ -114,7 +114,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         appModel.refreshPermissions()
         DispatchQueue.main.async {
-            appModel.applyLaunchPreferences()
+            if appModel.hasCompletedOnboarding {
+                appModel.applyLaunchPreferences()
+            } else {
+                appModel.presentInstallationOnboardingIfNeeded()
+            }
         }
         configureSmokeAutomationIfNeeded()
     }
