@@ -15,6 +15,44 @@ final class ModeAndOnboardingTests: XCTestCase {
         XCTAssertEqual(CaptureMode.ocr.helpText, "Estimated region capture with OCR text extraction.")
     }
 
+    func testCaptureControlInitialPlacementLeavesUtilityMenuRoom() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let size = CGSize(width: 380, height: 64)
+
+        let origin = CaptureControlPlacement.initialOrigin(for: size, visibleFrame: visibleFrame)
+        let frame = CGRect(origin: origin, size: size)
+
+        XCTAssertGreaterThanOrEqual(visibleFrame.maxX - frame.maxX, CaptureControlPlacement.utilityMenuClearance - 0.5)
+        XCTAssertEqual(frame.maxY, visibleFrame.maxY - CaptureControlPlacement.topPadding, accuracy: 0.5)
+    }
+
+    func testCaptureControlResizeKeepsUtilityMenuRoom() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let current = CGRect(x: 792, y: 708, width: 380, height: 64)
+        let resized = CaptureControlPlacement.resizedFrame(
+            from: current,
+            to: CGSize(width: 430, height: 142),
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertGreaterThanOrEqual(visibleFrame.maxX - resized.maxX, CaptureControlPlacement.utilityMenuClearance - 0.5)
+        XCTAssertGreaterThanOrEqual(resized.minX, visibleFrame.minX + CaptureControlPlacement.edgePadding - 0.5)
+        XCTAssertGreaterThanOrEqual(resized.minY, visibleFrame.minY + CaptureControlPlacement.edgePadding - 0.5)
+    }
+
+    func testCaptureControlPlacementFitsNarrowScreens() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 560, height: 360)
+        let size = CGSize(width: 430, height: 142)
+
+        let origin = CaptureControlPlacement.initialOrigin(for: size, visibleFrame: visibleFrame)
+        let frame = CGRect(origin: origin, size: size)
+
+        XCTAssertGreaterThanOrEqual(frame.minX, visibleFrame.minX + CaptureControlPlacement.edgePadding - 0.5)
+        XCTAssertLessThanOrEqual(frame.maxX, visibleFrame.maxX - CaptureControlPlacement.edgePadding + 0.5)
+        XCTAssertGreaterThanOrEqual(frame.minY, visibleFrame.minY + CaptureControlPlacement.edgePadding - 0.5)
+        XCTAssertLessThanOrEqual(frame.maxY, visibleFrame.maxY - CaptureControlPlacement.edgePadding + 0.5)
+    }
+
     func testOCRTextNormalizationSkipsBlankLinesAndWhitespace() {
         let record = CaptureRecord(
             id: UUID(),

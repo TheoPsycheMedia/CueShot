@@ -79,14 +79,14 @@ final class MenuBarActivationController: NSObject {
         if armed {
             menu.addItem(menuItem(title: "Cancel Capture", action: #selector(stopCapture), key: ""))
         } else {
-            menu.addItem(menuItem(title: "Arm Capture", action: #selector(armCapture), key: ""))
+            menu.addItem(menuItem(title: "Capture", action: #selector(armCapture), key: ""))
         }
         menu.addItem(menuItem(title: buttonVisible ? "Hide Capture Control" : "Show Capture Control", action: buttonVisible ? #selector(hideButton) : #selector(showButton), key: ""))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Open CueShot", action: #selector(openMainWindow), key: ""))
-        menu.addItem(menuItem(title: "Settings...", action: #selector(openSettings), key: ","))
-        menu.addItem(menuItem(title: "Onboarding", action: #selector(openOnboarding), key: ""))
-        menu.addItem(menuItem(title: "Copy Last PNG", action: #selector(copyLastPNG), key: ""))
+        menu.addItem(menuItem(title: "Settings…", action: #selector(openSettings), key: ","))
+        menu.addItem(menuItem(title: "Setup", action: #selector(openOnboarding), key: ""))
+        menu.addItem(menuItem(title: "Copy Last Capture", action: #selector(copyLastPNG), key: ""))
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "Quit CueShot", action: #selector(quit), key: "q"))
 
@@ -124,8 +124,8 @@ private extension CaptureState {
         switch self {
         case .permissionNeeded(let kind):
             switch kind {
-            case .accessibility: "Needs AX"
-            case .screenRecording: "Needs Screen"
+            case .accessibility: "Accessibility"
+            case .screenRecording: "Screen Recording"
             case .automation: "Needs Automation"
             }
         case .copied:
@@ -133,13 +133,13 @@ private extension CaptureState {
         case .failed:
             "Failed"
         case .pasteAttempted:
-            "Paste Attempted"
+            "Paste Sent"
         case .codexAppServerAccepted:
-            "App Server"
+            "Copied"
         case .codexNotFocused:
             "Needs Codex"
         default:
-            label
+            userFacingLabel
         }
     }
 }

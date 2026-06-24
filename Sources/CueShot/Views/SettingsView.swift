@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var confirmClearHistory = false
     @State private var shortcutSearch = ""
+    @AppStorage("appearancePreference") private var appearancePreference: AppAppearancePreference = .system
     @FocusState private var focusedField: SettingsFocusField?
 
     private var visibleShortcutCommands: [CueShotCommand] {
@@ -21,236 +23,31 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    CueColor.graphite,
-                    CueColor.glow.opacity(0.20),
-                    CueColor.surfaceBase
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        TabView {
+            generalPane
+                .tabItem { Label("General", systemImage: "gearshape") }
 
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 14) {
-                    SettingsHeader()
+            capturePane
+                .tabItem { Label("Capture", systemImage: "scope") }
 
-                    SettingsSection(
-                        title: "Appearance",
-                        detail: "Change CueShot's color mood across the capture control, reticle, overlay, and settings."
-                    ) {
-                        ThemeMoodPicker(model: model)
+            filesPane
+                .tabItem { Label("Files & History", systemImage: "folder") }
 
-                        Button {
-                            model.cycleTheme()
-                        } label: {
-                            Label("Change Color Mood", systemImage: "paintpalette")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(PressableMotionStyle())
-                        .cueTintedGlass(CueColor.reticle.opacity(0.16), cornerRadius: 12, interactive: true)
-                        .help("Cycle through CueShot color moods")
-                    }
+            shortcutsPane
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
 
-                    SettingsSection(
-                        title: "Capture",
-                        detail: "Choose the default mode and how the floating control appears."
-                    ) {
-                        SettingsRow(title: "Default capture type", detail: model.selectedMode.helpText) {
-                            Picker("", selection: $model.selectedMode) {
-                                ForEach(CaptureMode.allCases) { mode in
-                                    Label("\(mode.title) - \(mode.methodTitle)", systemImage: mode.symbol)
-                                        .tag(mode)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(width: 240)
-                        }
-
-                        Toggle("Show floating control when CueShot opens", isOn: $model.showCaptureButtonAtLaunch)
-
-                        Toggle("Hide Dock icon when menu bar item is active", isOn: $model.hideDockIconWhenMenuBarActive)
-
-                        Text("When enabled, CueShot stays available from the top menu bar and does not keep a Dock icon visible.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Toggle("Launch CueShot at login", isOn: Binding(
-                            get: { model.launchAtLoginEnabled },
-                            set: { model.setLaunchAtLogin($0) }
-                        ))
-                    }
-
-                    SettingsSection(
-                        title: "Output",
-                        detail: "Clipboard-first by default. Capture, preview, then paste or drag the PNG into Codex."
-                    ) {
-                        SettingsValueRow(title: "Primary behavior", value: "Copy PNG to Clipboard")
-                        Text("After capture, the floating control shows the last PNG. Press Cmd+V in Codex, drag the preview, or reveal it in Finder.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        SettingsValueRow(title: "Format", value: "PNG")
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("File naming template")
-                                .font(.system(size: 12, weight: .medium))
-                            TextField("CueShot-{app}-{mode}-{date}", text: $model.fileNameTemplate)
-                                .textFieldStyle(.roundedBorder)
-                                .focused($focusedField, equals: .fileNameTemplate)
-                            Text("Tokens: {app}, {mode}, {date}, {size}")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    SettingsSection(
-                        title: "Advanced",
-                        detail: "Visible-composer handoff copies first, focuses Codex, then triggers Edit > Paste through macOS Automation."
-                    ) {
-                        Toggle("Try visible paste into Codex after copying", isOn: $model.autoPasteToCodex)
-
-                        SettingsValueRow(title: "Last handoff", value: model.handoffStatusSummary)
-                        SettingsValueRow(title: "Automation", value: model.permissions.automationStatus.displayTitle)
-                        SettingsDiagnosticBlock(title: "Legacy paste diagnostic", value: model.appServerDiagnosticSummary)
-
-                        Button {
-                            model.testCodexHandoff()
-                        } label: {
-                            Label("Test Visible Paste Handoff", systemImage: "arrow.clockwise.circle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(PressableMotionStyle())
-                        .cueGlass(cornerRadius: 12, interactive: true)
-                        .help("Generate a sample PNG, copy it, focus Codex, and trigger Paste.")
-                    }
-
-                    SettingsSection(
-                        title: "History",
-                        detail: "Local captures are pruned to the latest 30 records."
-                    ) {
-                        SettingsValueRow(title: "Location", value: "~/Library/Application Support/CueShot/History")
-                        HStack(spacing: 8) {
-                            Button {
-                                model.revealHistoryFolder()
-                            } label: {
-                                Label("Reveal Folder", systemImage: "folder")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PressableMotionStyle())
-                            .cueGlass(cornerRadius: 12, interactive: true)
-
-                            Button(role: .destructive) {
-                                confirmClearHistory = true
-                            } label: {
-                                Label("Clear History", systemImage: "trash")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PressableMotionStyle())
-                            .cueGlass(cornerRadius: 12, interactive: true)
-                        }
-                    }
-
-                    SettingsSection(
-                        title: "Command Center",
-                        detail: "Search CueShot commands, pick a key, and change modifiers without memorizing defaults."
-                    ) {
-                        HStack(spacing: 10) {
-                            CommandCenterSearchField(text: $shortcutSearch)
-
-                            Button {
-                                model.resetAllShortcuts()
-                            } label: {
-                                Label("Reset All", systemImage: "arrow.counterclockwise")
-                                    .frame(width: 106)
-                            }
-                            .buttonStyle(PressableMotionStyle())
-                            .cueGlass(cornerRadius: 12, interactive: true)
-                            .help("Reset every CueShot shortcut to its default keybinding.")
-                        }
-
-                        VStack(spacing: 8) {
-                            ForEach(visibleShortcutCommands) { command in
-                                CommandShortcutRow(model: model, command: command)
-                            }
-
-                            if visibleShortcutCommands.isEmpty {
-                                Text("No CueShot commands match that search.")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(.vertical, 16)
-                            }
-                        }
-                    }
-
-                    SettingsSection(
-                        title: "Resize Keys",
-                        detail: "Plain scroll resizes the whole target. Pick modifier keys for one-axis adjustments."
-                    ) {
-                        SettingsRow(title: "Width resize key", detail: "Hold this key while scrolling to change width.") {
-                            ResizeModifierPicker(selection: $model.widthResizeModifier)
-                        }
-
-                        SettingsRow(title: "Height resize key", detail: "Hold this key while scrolling to change height.") {
-                            ResizeModifierPicker(selection: $model.heightResizeModifier)
-                        }
-
-                        SettingsValueRow(title: "Current mapping", value: model.resizeBindingSummary)
-                    }
-
-                    SettingsSection(
-                        title: "Privacy",
-                        detail: "CueShot captures visible pixels locally, uses Accessibility for exact element bounds, and uses Automation only for optional visible paste."
-                    ) {
-                        PermissionSettingsRow(title: "Capture listener", detail: "Accessibility required", granted: model.permissions.accessibilityGranted) {
-                            model.openPermissionSettings(.accessibility)
-                        }
-                        PermissionSettingsRow(title: "Screen capture", detail: "Uses Screen Recording", granted: model.permissions.screenRecordingGranted) {
-                            model.openPermissionSettings(.screenRecording)
-                        }
-                        PermissionSettingsRow(title: "Visible paste", detail: "Automation: \(model.permissions.automationStatus.detail)", granted: model.permissions.automationGranted) {
-                            model.openPermissionSettings(.automation)
-                        }
-                        SettingsValueRow(title: "Diagnostic", value: model.permissionDiagnosticSummary)
-                        Text("After changing macOS privacy settings, quit and reopen CueShot if capture still fails. CueShot keeps PNG capture local and clipboard-first; Automation is only used when visible paste is enabled.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        HStack(spacing: 8) {
-                            Button {
-                                model.refreshPermissions()
-                            } label: {
-                                Label("Refresh", systemImage: "arrow.clockwise")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PressableMotionStyle())
-                            .cueGlass(cornerRadius: 12, interactive: true)
-
-                            Button {
-                                model.showOnboardingAgain()
-                                model.openMainWindow()
-                            } label: {
-                                Label("Onboarding", systemImage: "sparkles")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PressableMotionStyle())
-                            .cueGlass(cornerRadius: 12, interactive: true)
-                        }
-                    }
-                }
-                .padding(20)
-            }
+            privacyPane
+                .tabItem { Label("Privacy", systemImage: "lock.shield") }
         }
-        .preferredColorScheme(.dark)
+        .frame(width: 760, height: 650)
         .onAppear {
             focusedField = nil
+            appearancePreference.apply()
             model.refreshPermissions()
             model.refreshLaunchAtLoginStatus()
+        }
+        .onChange(of: appearancePreference) { _, value in
+            value.apply()
         }
         .confirmationDialog("Clear all capture history?", isPresented: $confirmClearHistory) {
             Button("Clear History", role: .destructive) {
@@ -261,164 +58,259 @@ struct SettingsView: View {
             Text("This removes saved CueShot PNGs and the local history manifest.")
         }
     }
-}
 
-private struct ThemeMoodPicker: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                ThemeSwatch(theme: model.selectedTheme, size: 38)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.selectedTheme.title)
-                        .font(.system(size: 12, weight: .semibold))
+    private var generalPane: some View {
+        SettingsPane(title: "General", subtitle: "Keep CueShot available where you expect it.") {
+            Form {
+                Section("Appearance") {
+                    Picker("Appearance", selection: $appearancePreference) {
+                        ForEach(AppAppearancePreference.allCases) { preference in
+                            Text(preference.title).tag(preference)
+                        }
+                    }
+                    Picker("Accent", selection: $model.selectedTheme) {
+                        ForEach(CueTheme.allCases) { theme in
+                            Text(theme.title).tag(theme)
+                        }
+                    }
                     Text(model.selectedTheme.detail)
-                        .font(.system(size: 10))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Spacer()
-
-                Picker("Color mood", selection: $model.selectedTheme) {
-                    ForEach(CueTheme.allCases) { theme in
-                        Text(theme.title)
-                            .tag(theme)
-                    }
+                Section("App") {
+                    Toggle("Launch CueShot at login", isOn: Binding(
+                        get: { model.launchAtLoginEnabled },
+                        set: { model.setLaunchAtLogin($0) }
+                    ))
+                    Toggle("Show Capture Control when CueShot opens", isOn: $model.showCaptureButtonAtLaunch)
+                    Toggle("Hide Dock icon when menu bar item is active", isOn: $model.hideDockIconWhenMenuBarActive)
+                    Text("CueShot stays available from the menu bar. Hide the Dock icon only if you are comfortable using it as a menu-bar utility.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(width: 150)
             }
+            .formStyle(.grouped)
+        }
+    }
 
-            HStack(spacing: 8) {
-                ForEach(CueTheme.allCases) { theme in
-                    Button {
-                        model.selectedTheme = theme
-                    } label: {
-                        VStack(spacing: 5) {
-                            ThemeSwatch(theme: theme, size: 30)
-                            Text(theme.title)
-                                .font(.system(size: 9, weight: .semibold))
-                                .lineLimit(1)
+    private var capturePane: some View {
+        SettingsPane(title: "Capture", subtitle: "Choose the default mode and precision controls.") {
+            Form {
+                Section("Default mode") {
+                    Picker("Default capture mode", selection: $model.selectedMode) {
+                        ForEach(CaptureMode.allCases) { mode in
+                            Label(mode.userFacingTitle, systemImage: mode.symbol).tag(mode)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
                     }
-                    .buttonStyle(PressableMotionStyle())
-                    .background(.white.opacity(model.selectedTheme == theme ? 0.10 : 0.045), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder((model.selectedTheme == theme ? theme.primary : .white).opacity(model.selectedTheme == theme ? 0.45 : 0.08), lineWidth: 1)
+                    Text(model.selectedMode.userFacingHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Floating control") {
+                    Toggle("Show Capture Control when CueShot opens", isOn: $model.showCaptureButtonAtLaunch)
+                    Button {
+                        model.showCapturePuck()
+                    } label: {
+                        Label("Show Capture Control", systemImage: "scope")
                     }
-                    .accessibilityLabel("\(theme.title) color mood")
-                    .accessibilityAddTraits(model.selectedTheme == theme ? [.isSelected] : [])
+                }
+
+                Section("Precision Controls") {
+                    Picker("Width resize key", selection: $model.widthResizeModifier) {
+                        ForEach(CaptureResizeModifier.allCases) { modifier in
+                            Text(modifier.menuTitle).tag(modifier)
+                        }
+                    }
+                    Picker("Height resize key", selection: $model.heightResizeModifier) {
+                        ForEach(CaptureResizeModifier.allCases) { modifier in
+                            Text(modifier.menuTitle).tag(modifier)
+                        }
+                    }
+                    Text("Plain scroll resizes the whole target. Hold the selected modifier while scrolling to resize only width or height.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
+            .formStyle(.grouped)
+        }
+    }
+
+    private var filesPane: some View {
+        SettingsPane(title: "Files & History", subtitle: "Clipboard first, with local PNG history.") {
+            Form {
+                Section("Clipboard") {
+                    SettingsValueRow(title: "Primary behavior", value: "Copy image to clipboard")
+                    SettingsValueRow(title: "Format", value: "PNG")
+                    Text("After capture, paste it anywhere, drag the preview, or reveal the local file in Finder.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("File names") {
+                    TextField("CueShot-{app}-{mode}-{date}", text: $model.fileNameTemplate)
+                        .focused($focusedField, equals: .fileNameTemplate)
+                    Text("Tokens: {app}, {mode}, {date}, {size}")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("History") {
+                    SettingsValueRow(title: "Kept locally", value: "Latest 30 captures")
+                    SettingsValueRow(title: "Location", value: "~/Library/Application Support/CueShot/History")
+                    HStack {
+                        Button {
+                            model.revealHistoryFolder()
+                        } label: {
+                            Label("Show History Folder", systemImage: "folder")
+                        }
+
+                        Button(role: .destructive) {
+                            confirmClearHistory = true
+                        } label: {
+                            Label("Clear History", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    private var shortcutsPane: some View {
+        SettingsPane(title: "Keyboard Shortcuts", subtitle: "Search commands and adjust keys without memorizing defaults.") {
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    CommandCenterSearchField(text: $shortcutSearch)
+                    Button {
+                        model.resetAllShortcuts()
+                    } label: {
+                        Label("Reset All", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(visibleShortcutCommands) { command in
+                            CommandShortcutRow(model: model, command: command)
+                        }
+
+                        if visibleShortcutCommands.isEmpty {
+                            ContentUnavailableView("No matching shortcuts", systemImage: "keyboard", description: Text("Try a different command, mode, or key name."))
+                                .padding(.vertical, 28)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private var privacyPane: some View {
+        SettingsPane(title: "Permissions & Privacy", subtitle: "Required capture permissions stay clear. Codex handoff remains optional.") {
+            Form {
+                Section("Required for capture") {
+                    PermissionSettingsRow(title: "Screen Recording", detail: "Required to capture visible screen content", granted: model.permissions.screenRecordingGranted) {
+                        model.openPermissionSettings(.screenRecording)
+                    }
+                    PermissionSettingsRow(title: "Accessibility", detail: "Required to identify and select items under your cursor", granted: model.permissions.accessibilityGranted) {
+                        model.openPermissionSettings(.accessibility)
+                    }
+                }
+
+                Section("Codex Handoff, optional") {
+                    Toggle("Try pasting into Codex after each capture", isOn: $model.autoPasteToCodex)
+                    Text(CaptureCopy.visiblePasteHonesty)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    PermissionSettingsRow(title: "Automation", detail: model.permissions.automationStatus.detail, granted: model.permissions.automationGranted) {
+                        model.openPermissionSettings(.automation)
+                    }
+                    Button {
+                        model.testCodexHandoff()
+                    } label: {
+                        Label("Test Paste in Codex", systemImage: "arrow.clockwise.circle")
+                    }
+                    SettingsValueRow(title: "Last handoff", value: model.handoffStatusSummary)
+                }
+
+                Section("Troubleshooting") {
+                    DisclosureGroup("Support Details") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SettingsDiagnosticBlock(title: "Permissions", value: model.permissionDiagnosticSummary)
+                            SettingsDiagnosticBlock(title: "Paste Test Details", value: model.appServerDiagnosticSummary)
+                        }
+                    }
+                    Button {
+                        model.refreshPermissions()
+                    } label: {
+                        Label("Refresh Permissions", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        model.showOnboardingAgain()
+                        model.openMainWindow()
+                    } label: {
+                        Label("Open Setup", systemImage: "questionmark.circle")
+                    }
+                }
+            }
+            .formStyle(.grouped)
         }
     }
 }
 
-private struct ThemeSwatch: View {
-    let theme: CueTheme
-    let size: CGFloat
+private enum AppAppearancePreference: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
 
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(theme.primary)
-                .frame(width: size, height: size)
-                .shadow(color: theme.glow.opacity(0.35), radius: 8, y: 2)
-            Circle()
-                .fill(theme.secondary)
-                .frame(width: size * 0.48, height: size * 0.48)
-                .offset(x: size * 0.22, y: -size * 0.16)
-            Circle()
-                .strokeBorder(theme.pearl.opacity(0.72), lineWidth: 1)
-                .frame(width: size, height: size)
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
         }
-        .accessibilityHidden(true)
+    }
+
+    @MainActor
+    func apply() {
+        switch self {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 }
 
 private enum SettingsFocusField: Hashable {
     case fileNameTemplate
-    case codexCLIPathOverride
 }
 
-private struct SettingsHeader: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "scope")
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(CueColor.reticle)
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("CueShot Settings")
-                    .font(.system(size: 20, weight: .semibold))
-                Text("Capture behavior, handoff, history, and privacy.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-    }
-}
-
-private struct SettingsSection<Content: View>: View {
+private struct SettingsPane<Content: View>: View {
     let title: String
-    let detail: String
+    let subtitle: String
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                content()
-            }
-        }
-        .padding(14)
-        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.09), lineWidth: 1)
-        }
-    }
-}
-
-private struct SettingsRow<Content: View>: View {
-    let title: String
-    let detail: String
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                Text(detail)
-                    .font(.system(size: 10))
+                    .font(.title2.weight(.semibold))
+                Text(subtitle)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
-            .layoutPriority(1)
-
-            Spacer(minLength: 8)
             content()
         }
+        .padding(22)
+        .background(CueColor.canvas)
     }
 }
 
@@ -427,15 +319,14 @@ private struct SettingsValueRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
-                .font(.system(size: 12, weight: .medium))
-            Spacer()
+            Spacer(minLength: 8)
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .textSelection(.enabled)
         }
     }
 }
@@ -447,15 +338,15 @@ private struct SettingsDiagnosticBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 12, weight: .medium))
+                .font(.callout.weight(.medium))
             Text(value)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
-                .background(.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(CueColor.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 }
@@ -466,21 +357,14 @@ private struct CommandCenterSearchField: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
-
-            TextField("Search commands", text: $text)
+            TextField("Search shortcuts", text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-
-            Spacer()
-
             if !text.isEmpty {
                 Button {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -488,10 +372,12 @@ private struct CommandCenterSearchField: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 36)
-        .cueGlass(cornerRadius: 12, interactive: false)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Search CueShot commands")
+        .frame(height: 34)
+        .background(CueColor.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(CueColor.separator.opacity(0.55), lineWidth: 1)
+        }
     }
 }
 
@@ -505,9 +391,7 @@ private struct CommandShortcutRow: View {
 
     private var modifierPresetBinding: Binding<CueShortcutModifierPreset> {
         Binding(
-            get: {
-                CueShortcutModifierPreset.matching(shortcut.modifiers)
-            },
+            get: { CueShortcutModifierPreset.matching(shortcut.modifiers) },
             set: { preset in
                 model.updateShortcut(for: command) { shortcut in
                     shortcut.modifiers = preset.modifiers
@@ -518,9 +402,7 @@ private struct CommandShortcutRow: View {
 
     private var keyBinding: Binding<CueShortcutKey?> {
         Binding(
-            get: {
-                shortcut.key
-            },
+            get: { shortcut.key },
             set: { key in
                 model.updateShortcut(for: command) { shortcut in
                     shortcut.key = key
@@ -533,24 +415,15 @@ private struct CommandShortcutRow: View {
         HStack(spacing: 12) {
             Image(systemName: command.symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(CueColor.reticle)
-                .frame(width: 34, height: 34)
-                .background(CueColor.reticle.opacity(0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .foregroundStyle(CueColor.accent)
+                .frame(width: 32, height: 32)
+                .background(CueColor.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 7) {
-                    Text(command.title)
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(command.groupTitle.uppercased())
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.white.opacity(0.07), in: Capsule())
-                }
-
+            VStack(alignment: .leading, spacing: 2) {
+                Text(command.title)
+                    .font(.callout.weight(.semibold))
                 Text(command.detail)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -562,33 +435,28 @@ private struct CommandShortcutRow: View {
 
             Picker("Modifiers", selection: modifierPresetBinding) {
                 ForEach(CueShortcutModifierPreset.allCases) { preset in
-                    Text(preset.title)
-                        .tag(preset)
+                    Text(preset.title).tag(preset)
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(width: 82)
-            .help("Choose modifier keys")
+            .frame(width: 92)
 
             Picker("Key", selection: keyBinding) {
-                Text("Unassigned")
-                    .tag(Optional<CueShortcutKey>.none)
+                Text("Unassigned").tag(Optional<CueShortcutKey>.none)
                 ForEach(CueShortcutKey.allCases) { key in
-                    Text(key.displayTitle)
-                        .tag(Optional(key))
+                    Text(key.displayTitle).tag(Optional(key))
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(width: 96)
-            .help("Choose shortcut key")
+            .frame(width: 104)
 
             Button {
                 model.resetShortcut(for: command)
             } label: {
                 Image(systemName: "arrow.counterclockwise")
-                    .frame(width: 26, height: 26)
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -599,7 +467,7 @@ private struct CommandShortcutRow: View {
                 model.clearShortcut(for: command)
             } label: {
                 Image(systemName: "xmark.circle")
-                    .frame(width: 26, height: 26)
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -608,10 +476,10 @@ private struct CommandShortcutRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
-        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(CueColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(CueColor.separator.opacity(0.45), lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
     }
@@ -626,25 +494,9 @@ private struct ShortcutBindingBadge: View {
             .foregroundStyle(shortcut.isAssigned ? Color.primary : Color.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.82)
-            .frame(width: 82, height: 27)
-            .background(.white.opacity(shortcut.isAssigned ? 0.09 : 0.05), in: Capsule())
+            .frame(width: 82, height: 26)
+            .background((shortcut.isAssigned ? CueColor.accent : Color.secondary).opacity(shortcut.isAssigned ? 0.12 : 0.08), in: Capsule())
             .accessibilityLabel(shortcut.accessibilityText)
-    }
-}
-
-private struct ResizeModifierPicker: View {
-    @Binding var selection: CaptureResizeModifier
-
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(CaptureResizeModifier.allCases) { modifier in
-                Text(modifier.menuTitle)
-                    .tag(modifier)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(width: 132)
     }
 }
 
@@ -657,25 +509,22 @@ private struct PermissionSettingsRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(granted ? CueColor.reticle : .orange)
+                .foregroundStyle(granted ? CueColor.success : CueColor.warning)
+                .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
                 Text(detail)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if granted {
-                Text("Granted")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(CueColor.reticle)
+                Text("Allowed")
+                    .foregroundStyle(CueColor.success)
             } else {
-                Button("Open") {
+                Button("Open Settings") {
                     open()
                 }
-                .font(.system(size: 11, weight: .medium))
-                .buttonStyle(.plain)
             }
         }
     }

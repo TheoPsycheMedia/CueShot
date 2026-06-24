@@ -15,7 +15,6 @@ struct CueShotApp: App {
         WindowGroup("CueShot", id: "main") {
             ContentView(model: model)
                 .frame(minWidth: 760, idealWidth: 860, maxWidth: 980, minHeight: 500, idealHeight: 560, maxHeight: 680)
-                .preferredColorScheme(.dark)
                 .onAppear {
                     appDelegate.model = model
                     model.refreshPermissions()
@@ -48,7 +47,6 @@ struct CueShotApp: App {
 
         Settings {
             SettingsView(model: model)
-                .preferredColorScheme(.dark)
         }
     }
 }
@@ -107,7 +105,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model = appModel
         DiagnosticsLogger().record("app.launch modelReady showAtLaunch=\(appModel.showCaptureButtonAtLaunch)")
         appModel.applyActivationPolicy()
-        NSApp.appearance = NSAppearance(named: .darkAqua)
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = icon

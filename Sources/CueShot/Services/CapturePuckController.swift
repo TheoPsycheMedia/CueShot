@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class CapturePuckController {
     private var panel: NSPanel?
-    private let initialPanelSize = CaptureControlPresentation.idle.panelSize
+    private let initialPanelSize = CaptureControlMetrics.defaultSize(for: .idle)
 
     func show(model: AppModel) {
         if panel == nil {
@@ -15,7 +15,7 @@ final class CapturePuckController {
         }
 
         if let panel {
-            Self.resize(panel, to: model.captureControlPresentation.panelSize, animated: false)
+            Self.resize(panel, to: CaptureControlMetrics.defaultSize(for: model.captureControlPresentation), animated: false)
         }
         panel?.orderFrontRegardless()
     }
@@ -52,7 +52,6 @@ final class CapturePuckController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -64,7 +63,6 @@ final class CapturePuckController {
                 guard let panel else { return }
                 Self.resize(panel, to: size, animated: true)
             }
-            .preferredColorScheme(.dark)
         )
         return panel
     }
@@ -74,13 +72,7 @@ final class CapturePuckController {
             return
         }
 
-        let margin: CGFloat = 28
-        let size = panel.frame.size
-        let origin = CGPoint(
-            x: visibleFrame.maxX - size.width - margin,
-            y: visibleFrame.maxY - size.height - margin
-        )
-        panel.setFrameOrigin(origin)
+        panel.setFrameOrigin(CaptureControlPlacement.initialOrigin(for: panel.frame.size, visibleFrame: visibleFrame))
     }
 
     private static func resize(_ panel: NSPanel, to size: CGSize, animated: Bool) {
@@ -89,12 +81,51 @@ final class CapturePuckController {
             return
         }
 
-        var origin = CGPoint(x: current.maxX - size.width, y: current.maxY - size.height)
         let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? current
-        origin.x = min(max(origin.x, visibleFrame.minX + 8), visibleFrame.maxX - size.width - 8)
-        origin.y = min(max(origin.y, visibleFrame.minY + 8), visibleFrame.maxY - size.height - 8)
+        panel.setFrame(CaptureControlPlacement.resizedFrame(from: current, to: size, visibleFrame: visibleFrame), display: true, animate: animated)
+    }
+}
 
-        panel.setFrame(NSRect(origin: origin, size: size), display: true, animate: animated)
+enum CaptureControlPlacement {
+    static let edgePadding: CGFloat = 12
+    static let topPadding: CGFloat = 28
+    static let utilityMenuClearance: CGFloat = 220
+
+    static func initialOrigin(for size: CGSize, visibleFrame: CGRect) -> CGPoint {
+        let desired = CGPoint(
+            x: visibleFrame.maxX - size.width - utilityMenuClearance,
+            y: visibleFrame.maxY - size.height - topPadding
+        )
+        return clampedOrigin(desired, size: size, visibleFrame: visibleFrame, preferredRightClearance: utilityMenuClearance)
+    }
+
+    static func resizedFrame(from current: CGRect, to size: CGSize, visibleFrame: CGRect) -> CGRect {
+        let desired = CGPoint(
+            x: visibleFrame.maxX - size.width - utilityMenuClearance,
+            y: current.maxY - size.height
+        )
+        let origin = clampedOrigin(desired, size: size, visibleFrame: visibleFrame, preferredRightClearance: utilityMenuClearance)
+        return CGRect(origin: origin, size: size)
+    }
+
+    private static func clampedOrigin(
+        _ origin: CGPoint,
+        size: CGSize,
+        visibleFrame: CGRect,
+        preferredRightClearance: CGFloat
+    ) -> CGPoint {
+        let minX = visibleFrame.minX + edgePadding
+        let maxVisibleX = visibleFrame.maxX - size.width - edgePadding
+        let maxMenuSafeX = visibleFrame.maxX - size.width - preferredRightClearance
+        let maxX = max(minX, min(maxVisibleX, maxMenuSafeX))
+
+        let minY = visibleFrame.minY + edgePadding
+        let maxY = max(minY, visibleFrame.maxY - size.height - edgePadding)
+
+        return CGPoint(
+            x: min(max(origin.x, minX), maxX),
+            y: min(max(origin.y, minY), maxY)
+        )
     }
 }
 
@@ -117,16 +148,20 @@ private struct CapturePuckView: View {
             content
                 .padding(.horizontal, 11)
                 .padding(.vertical, 9)
-                .frame(width: presentation.panelSize.width, height: presentation.panelSize.height)
-                .cueGlass(cornerRadius: 20, interactive: true)
+                .fixedSize(horizontal: true, vertical: true)
+                .cueFloatingHUD(cornerRadius: 20)
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(PuckSizeReporter())
+                .onPreferenceChange(PuckContentSizePreferenceKey.self) { contentSize in
+                    resize(CaptureControlMetrics.size(for: presentation, contentSize: contentSize))
+                }
                 .onAppear {
-                    resize(presentation.panelSize)
+                    resize(CaptureControlMetrics.defaultSize(for: presentation))
                 }
                 .onChange(of: presentation) { _, newPresentation in
-                    resize(newPresentation.panelSize)
+                    resize(CaptureControlMetrics.defaultSize(for: newPresentation))
                 }
-            .scaleEffect(appeared ? 1 : 0.96)
+            .scaleEffect(appeared ? 1 : 0.98)
             .opacity(appeared ? 1 : 0)
             .animation(MotionSpec.entrance, value: appeared)
             .onAppear { appeared = true }
@@ -150,17 +185,60 @@ private struct CapturePuckView: View {
     }
 }
 
-private extension CaptureControlPresentation {
-    var panelSize: CGSize {
-        switch self {
+private enum CaptureControlMetrics {
+    static func defaultSize(for presentation: CaptureControlPresentation) -> CGSize {
+        switch presentation {
         case .idle:
-            CGSize(width: 420, height: 92)
+            CGSize(width: 424, height: 96)
         case .armed:
-            CGSize(width: 318, height: 62)
+            CGSize(width: 340, height: 62)
         case .captured:
-            CGSize(width: 420, height: 152)
+            CGSize(width: 430, height: 142)
         case .permission, .failed:
-            CGSize(width: 390, height: 132)
+            CGSize(width: 390, height: 126)
+        }
+    }
+
+    static func size(for presentation: CaptureControlPresentation, contentSize: CGSize) -> CGSize {
+        let fallback = defaultSize(for: presentation)
+        guard contentSize.width > 1, contentSize.height > 1 else { return fallback }
+
+        let minSize: CGSize
+        let maxSize: CGSize
+        switch presentation {
+        case .idle:
+            minSize = CGSize(width: 398, height: 88)
+            maxSize = CGSize(width: 452, height: 108)
+        case .armed:
+            minSize = CGSize(width: 300, height: 56)
+            maxSize = CGSize(width: 370, height: 72)
+        case .captured:
+            minSize = CGSize(width: 390, height: 118)
+            maxSize = CGSize(width: 450, height: 156)
+        case .permission, .failed:
+            minSize = CGSize(width: 360, height: 112)
+            maxSize = CGSize(width: 430, height: 148)
+        }
+
+        return CGSize(
+            width: min(max(contentSize.width, minSize.width), maxSize.width),
+            height: min(max(contentSize.height, minSize.height), maxSize.height)
+        )
+    }
+}
+
+private struct PuckContentSizePreferenceKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
+private struct PuckSizeReporter: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: PuckContentSizePreferenceKey.self, value: proxy.size)
         }
     }
 }
@@ -170,27 +248,27 @@ private struct PuckUtilityMenu: View {
 
     var body: some View {
         Menu {
-            Button("Copy Last PNG") {
+            Button("Copy Last Capture") {
                 model.copyLastCapture()
             }
             .disabled(model.selectedCapture == nil)
-            Button("Save PNG As...") {
+            Button("Save Capture As…") {
                 model.saveSelectedCaptureAs()
             }
             .disabled(model.selectedCapture == nil)
             if let capture = model.selectedCapture {
-                Button("Reveal PNG") {
+                Button("Show in Finder") {
                     model.revealCapture(capture)
                 }
             }
             Divider()
-            Button("Hide to Menu Bar") {
+            Button("Hide Control") {
                 model.hideToMenuBar()
             }
             Button("Open CueShot") {
                 model.openMainWindow()
             }
-            Button("Settings...") {
+            Button("Settings…") {
                 model.openSettings()
             }
             Button("Onboarding") {
@@ -217,15 +295,7 @@ private struct PuckStatusGlyph: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill((model.captureState.isActive ? CueColor.reticle : .white).opacity(0.12))
-                .frame(width: 30, height: 30)
-            Image(systemName: model.captureState.isActive ? "scope" : "viewfinder")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(model.captureState.isActive ? CueColor.reticle : .primary)
-        }
-        .cueTintedGlass((model.captureState.isActive ? CueColor.reticle : .white).opacity(0.12), cornerRadius: 15)
+        CueBrandMark(size: 30, active: model.captureState.isActive)
     }
 }
 
@@ -235,26 +305,31 @@ private struct PuckIdleBar: View {
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 8) {
-                PuckStatusGlyph(model: model)
+                CueBrandMark(size: 30, active: false)
+
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Capture for Codex")
+                    Text("CueShot Control")
                         .font(.system(size: 12, weight: .semibold))
-                    Text(model.selectedMode.puckIdleDetail)
+                    Text(model.selectedMode.userFacingIdleInstruction)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                .layoutPriority(1)
+
                 Spacer(minLength: 4)
+
                 Button {
                     model.armCaptureFromFloatingControl()
                 } label: {
-                    Label("Arm", systemImage: "scope")
+                    Label("Capture", systemImage: model.selectedMode.symbol)
                         .labelStyle(.titleAndIcon)
-                        .frame(width: 68)
+                        .frame(width: 82)
                 }
                 .accessibilityIdentifier("CapturePuckCaptureButton")
                 .buttonStyle(PressableMotionStyle())
-                .cueTintedGlass(CueColor.reticle.opacity(0.22), cornerRadius: 12, interactive: true)
+                .cueTintedGlass(CueColor.accent.opacity(0.22), cornerRadius: 12, interactive: true)
+
                 PuckHideButton(model: model)
                 PuckUtilityMenu(model: model)
             }
@@ -276,11 +351,11 @@ private struct PuckHideButton: View {
                 .frame(width: 30, height: 28)
         }
         .accessibilityIdentifier("CapturePuckHideButton")
-        .accessibilityLabel("Hide to Menu Bar")
+        .accessibilityLabel("Hide Capture Control")
         .accessibilityHint("Hides CueShot windows and leaves the menu bar item available.")
-        .help("Hide to Menu Bar")
+        .help("Hide Capture Control")
         .buttonStyle(PressableMotionStyle())
-        .cueGlass(cornerRadius: 12, interactive: true)
+        .cueTintedGlass(CueColor.secondaryAccent.opacity(0.12), cornerRadius: 12, interactive: true)
     }
 }
 
@@ -291,10 +366,10 @@ private struct PuckArmedBar: View {
         HStack(spacing: 9) {
             PuckStatusGlyph(model: model)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.selectedMode.puckArmedTitle)
+                Text(model.selectedMode.userFacingArmedInstruction)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
-                Text(model.selectedMode.puckArmedDetail)
+                Text(model.selectedMode.presentation.contextualHint ?? "Press Esc to cancel.")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -327,22 +402,22 @@ private struct PuckModePicker: View {
                     HStack(spacing: 4) {
                         Image(systemName: mode.symbol)
                             .font(.system(size: 10, weight: .semibold))
-                        Text(mode.puckPickerTitle)
+                        Text(mode.userFacingPickerTitle)
                             .font(.system(size: 9, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
                     }
                     .frame(maxWidth: .infinity, minHeight: 26)
-                    .foregroundStyle(model.selectedMode == mode ? CueColor.reticle : .secondary)
+                    .foregroundStyle(model.selectedMode == mode ? CueColor.accent : .secondary)
                 }
                 .accessibilityIdentifier("CapturePuckMode-\(mode.rawValue)")
                 .buttonStyle(PressableMotionStyle())
                 .cueTintedGlass(
-                    (model.selectedMode == mode ? CueColor.reticle : .white).opacity(model.selectedMode == mode ? 0.18 : 0.07),
+                    (model.selectedMode == mode ? CueColor.accent : CueColor.secondaryAccent).opacity(model.selectedMode == mode ? 0.20 : 0.08),
                     cornerRadius: 9,
                     interactive: true
                 )
-                .help(mode.helpText)
+                .help(mode.userFacingHelpText)
             }
         }
     }
@@ -355,12 +430,13 @@ private struct PuckPermissionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
+                CueBrandMark(size: 28, active: false)
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(kind.title) needed")
+                    Text(kind.presentation.title)
                         .font(.system(size: 13, weight: .semibold))
-                    Text(kind.message)
+                    Text(kind.presentation.detail)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -373,7 +449,7 @@ private struct PuckPermissionCard: View {
                 Button {
                     model.openPermissionSettings(kind)
                 } label: {
-                    Label("Open Settings", systemImage: "gearshape")
+                    Label(kind.presentation.actionTitle, systemImage: "gearshape")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PressableMotionStyle())
@@ -382,7 +458,7 @@ private struct PuckPermissionCard: View {
                 Button {
                     model.dismissCaptureStatus()
                 } label: {
-                    Text("Not Now")
+                    Text("Later")
                         .frame(width: 82)
                 }
                 .buttonStyle(PressableMotionStyle())
@@ -400,12 +476,13 @@ private struct PuckFailureCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
+                CueBrandMark(size: 28, active: false)
                 Image(systemName: "xmark.octagon.fill")
                     .foregroundStyle(.red)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Capture failed")
+                    Text(CaptureCopy.failedTitle)
                         .font(.system(size: 13, weight: .semibold))
-                    Text(message)
+                    Text(message.isEmpty ? CaptureCopy.failedDetail : message)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -445,10 +522,11 @@ private struct PuckResultCard: View {
     var body: some View {
         VStack(spacing: 9) {
             HStack(spacing: 8) {
-                Label("Copied", systemImage: "checkmark.circle.fill")
+                CueBrandMark(size: 28, active: true)
+                Label(capture.mode == .ocr && capture.normalizedOCRText != nil ? "Text copied" : CaptureCopy.copiedTitle, systemImage: "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(CueColor.reticle)
-                Text("\(capture.mode.title) · \(capture.dimensions) · \(capture.fileSize)")
+                    .foregroundStyle(CueColor.success)
+                Text("\(capture.mode.userFacingTitle) · \(capture.dimensions) · \(capture.fileSize)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -461,7 +539,7 @@ private struct PuckResultCard: View {
                 thumbnail
 
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Press Cmd+V in Codex or drag this thumbnail.")
+                    Text(capture.mode == .ocr && capture.normalizedOCRText != nil ? CaptureCopy.textFoundDetail : "Paste it anywhere, or drag this thumbnail.")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -484,14 +562,14 @@ private struct PuckResultCard: View {
                         Button {
                             model.copyLastCapture()
                         } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
+                            Label("Copy Again", systemImage: "doc.on.doc")
                                 .frame(maxWidth: .infinity)
                         }
                         if let _ = capture.normalizedOCRText {
                             Button {
                                 model.copyOCRText(capture)
                             } label: {
-                                Label("OCR", systemImage: "textformat")
+                                Label("Copy Text", systemImage: "textformat")
                                     .frame(maxWidth: .infinity)
                             }
                         }
@@ -499,7 +577,7 @@ private struct PuckResultCard: View {
                         Button {
                             model.revealCapture(capture)
                         } label: {
-                            Label("Reveal", systemImage: "folder")
+                            Label("Finder", systemImage: "folder")
                                 .frame(maxWidth: .infinity)
                         }
                     }
@@ -512,7 +590,7 @@ private struct PuckResultCard: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Copied. \(capture.mode.title) capture, \(capture.dimensions), \(capture.fileSize). Choose New for another capture, press Command V in Codex, or drag the thumbnail.")
+        .accessibilityLabel("Copied to clipboard. \(capture.mode.userFacingTitle) capture, \(capture.dimensions), \(capture.fileSize). Choose New for another capture, paste it, or drag the thumbnail.")
     }
 
     @ViewBuilder

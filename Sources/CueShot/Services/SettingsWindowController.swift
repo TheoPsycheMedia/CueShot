@@ -35,12 +35,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         )
         window.title = "CueShot Settings"
         window.contentMinSize = NSSize(width: 680, height: 560)
-        window.appearance = NSAppearance(named: .darkAqua)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentView = NSHostingView(
             rootView: SettingsView(model: model)
-                .preferredColorScheme(.dark)
         )
         window.center()
         return window

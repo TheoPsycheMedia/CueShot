@@ -13,7 +13,7 @@ struct OnboardingView: View {
             let panelHeight = min(max(geometry.size.height - 48, 440), 760)
 
             ZStack {
-                Color.black.opacity(0.38)
+                CueColor.canvas.opacity(0.78)
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
@@ -32,16 +32,16 @@ struct OnboardingView: View {
                         .padding(.horizontal, 22)
                         .padding(.top, 12)
                         .padding(.bottom, 18)
-                        .background(CueColor.surfaceBase.opacity(0.48))
+                        .background(.bar)
                 }
                 .frame(width: panelWidth, height: panelHeight)
-                .cueGlass(cornerRadius: 28)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .strokeBorder(CueColor.reticle.opacity(0.18), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(CueColor.separator.opacity(0.5), lineWidth: 1)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .shadow(color: .black.opacity(0.38), radius: 40, y: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
             }
         }
         .transition(.opacity.combined(with: .scale(scale: 0.985)))
@@ -56,23 +56,22 @@ struct OnboardingView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(CueColor.reticle.opacity(0.16))
-                    .frame(width: 52, height: 52)
-                Image(systemName: "scope")
-                    .font(.system(size: 24, weight: .regular))
-                    .foregroundStyle(CueColor.reticle)
-            }
+            CueBrandMark(size: 52, active: model.permissions.capturePermissionsGranted)
 
             VStack(alignment: .leading, spacing: 6) {
+                Text("CueShot")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(CueColor.accent)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+
                 HStack(spacing: 8) {
-                    Text("Set up CueShot")
+                    Text(CaptureCopy.permissionSetupTitle)
                         .font(.system(size: 22, weight: .semibold))
                     setupStatusPill
                 }
 
-                Text("CueShot needs two macOS permissions before capture works: Screen Recording for pixels and Accessibility for the click listener and element bounds. Automation is optional for visible paste into Codex.")
+                Text(CaptureCopy.permissionSetupDetail)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -108,14 +107,14 @@ struct OnboardingView: View {
     }
 
     private var setupSummary: some View {
-        OnboardingBand(systemImage: "checklist", title: "First-launch setup") {
+        OnboardingBand(systemImage: "checklist", title: "Capture exactly what you need") {
             VStack(alignment: .leading, spacing: 8) {
                 LazyVGrid(columns: setupColumns, alignment: .leading, spacing: 8) {
-                    LocalChip(title: "1. Grant Screen", systemImage: model.permissions.screenRecordingGranted ? "checkmark.circle.fill" : "rectangle.on.rectangle")
-                    LocalChip(title: "2. Grant Accessibility", systemImage: model.permissions.accessibilityGranted ? "checkmark.circle.fill" : "cursorarrow.motionlines")
+                    LocalChip(title: "1. Screen Recording", systemImage: model.permissions.screenRecordingGranted ? "checkmark.circle.fill" : "rectangle.on.rectangle")
+                    LocalChip(title: "2. Accessibility", systemImage: model.permissions.accessibilityGranted ? "checkmark.circle.fill" : "cursorarrow.motionlines")
                     LocalChip(title: "3. Start Capturing", systemImage: "scope")
                 }
-                Text("macOS owns the permission prompts. CueShot opens the right pane, refreshes this checklist, and keeps setup visible until the required grants are finished.")
+                Text("CueShot opens the right place in System Settings and checks again when you return. Automation for Codex can wait.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -140,7 +139,7 @@ struct OnboardingView: View {
             .font(.system(size: 13, weight: .medium))
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Finish the required permissions to unlock capture. Automation can wait.")
+                Text("Finish Screen Recording and Accessibility to unlock capture. Automation can wait.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
@@ -166,7 +165,7 @@ struct OnboardingView: View {
         Button {
             model.completeOnboarding()
         } label: {
-            Text("Finish Setup")
+            Text("Start Capturing")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PressableMotionStyle())
@@ -178,7 +177,7 @@ struct OnboardingView: View {
         Button {
             model.completeOnboarding(startCapture: true)
         } label: {
-            Label("Show Floating Control", systemImage: "scope")
+            Label("Show Capture Control", systemImage: "scope")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(PressableMotionStyle())
@@ -231,7 +230,15 @@ private struct OnboardingPermissionRow: View {
             VStack(spacing: 8) {
                 PermissionSetupCard(model: model, kind: .screenRecording)
                 PermissionSetupCard(model: model, kind: .accessibility)
-                PermissionSetupCard(model: model, kind: .automation)
+                DisclosureGroup {
+                    PermissionSetupCard(model: model, kind: .automation)
+                    Text(CaptureCopy.visiblePasteHonesty)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label("Optional Codex Handoff", systemImage: "keyboard")
+                        .font(.callout.weight(.semibold))
+                }
             }
         }
     }
@@ -281,12 +288,12 @@ private struct PermissionSetupCard: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
-                    Text(kind.title)
+                    Text(kind.presentation.title)
                         .font(.system(size: 13, weight: .semibold))
                     PermissionStatusBadge(title: statusText, color: statusColor)
                 }
 
-                Text(kind.onboardingDetail)
+                Text(kind.presentation.detail)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -297,7 +304,7 @@ private struct PermissionSetupCard: View {
             Button {
                 model.openPermissionSettings(kind)
             } label: {
-                Label(granted ? "Granted" : kind.onboardingActionTitle, systemImage: granted ? "checkmark" : "arrow.up.forward.app")
+                Label(granted ? "Granted" : kind.presentation.actionTitle, systemImage: granted ? "checkmark" : "arrow.up.forward.app")
                     .labelStyle(.titleAndIcon)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
@@ -338,14 +345,14 @@ private struct OnboardingModeRow: View {
     private let columns = [GridItem(.adaptive(minimum: 120), spacing: 8)]
 
     var body: some View {
-        OnboardingBand(systemImage: "rectangle.dashed", title: "Pick the capture shape") {
+        OnboardingBand(systemImage: "rectangle.dashed", title: "Choose what to capture") {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                 ModeChip(title: "Element", detail: "Exact", systemImage: "scope")
                 ModeChip(title: "Selection", detail: "Estimated", systemImage: "cursorarrow.rays")
                 ModeChip(title: "Area", detail: "Drag", systemImage: "selection.pin.in.out")
                 ModeChip(title: "Window", detail: "Click", systemImage: "macwindow")
                 ModeChip(title: "Screen", detail: "Display", systemImage: "display")
-                ModeChip(title: "OCR", detail: "Extract text", systemImage: "text.viewfinder")
+                ModeChip(title: "Text", detail: "Copy text", systemImage: "text.viewfinder")
             }
         }
     }
@@ -355,7 +362,7 @@ private struct OnboardingLocalRow: View {
     private let columns = [GridItem(.adaptive(minimum: 120), spacing: 8)]
 
     var body: some View {
-        OnboardingBand(systemImage: "internaldrive", title: "Keep the loop local") {
+        OnboardingBand(systemImage: "internaldrive", title: "Clipboard first, local history") {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                 LocalChip(title: "PNG history", systemImage: "clock.arrow.circlepath")
                 LocalChip(title: "Clipboard preview", systemImage: "doc.on.clipboard")
